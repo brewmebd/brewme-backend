@@ -1,0 +1,577 @@
+{
+  "info": {
+    "name": "BrewMe API",
+    "_postman_id": "b3e0c0a1-0000-4000-8000-brewme000001",
+    "description": "REST API for the BrewMe creator-support platform. Generated from API.md.\n\nSet collection variables `baseUrl`, `username`, and `token` (the latter is auto-filled by the Login/Signup requests via a test script).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api/v1", "type": "string" },
+    { "key": "username", "value": "sarahchen", "type": "string" },
+    { "key": "token", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication & Account",
+      "item": [
+        {
+          "name": "Signup",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/signup", "host": ["{{baseUrl}}"], "path": ["auth", "signup"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Chen\",\n  \"email\": \"sarah@example.com\",\n  \"password\": \"min8chars\",\n  \"username\": \"sarahchen\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const t = pm.response.json().token;",
+                  "  if (t) pm.collectionVariables.set('token', t);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sarah@example.com\",\n  \"password\": \"min8chars\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const t = pm.response.json().token;",
+                  "  if (t) pm.collectionVariables.set('token', t);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] }
+          }
+        },
+        {
+          "name": "Get current user (me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] }
+          }
+        },
+        {
+          "name": "Check username availability",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/username-available?username=sarahchen",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "username-available"],
+              "query": [{ "key": "username", "value": "sarahchen" }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Public Creator Pages",
+      "item": [
+        {
+          "name": "Get creator profile",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/creators/{{username}}", "host": ["{{baseUrl}}"], "path": ["creators", "{{username}}"] }
+          }
+        },
+        {
+          "name": "Get creator supporters feed",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/creators/{{username}}/supporters?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["creators", "{{username}}", "supporters"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get creator posts",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/creators/{{username}}/posts?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["creators", "{{username}}", "posts"],
+              "query": [
+                { "key": "limit", "value": "10" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Donations",
+      "item": [
+        {
+          "name": "Create donation (buy coffees)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/creators/{{username}}/donations",
+              "host": ["{{baseUrl}}"],
+              "path": ["creators", "{{username}}", "donations"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cups\": 3,\n  \"supporter_name\": \"Emily R.\",\n  \"message\": \"Love your work! 🎨\",\n  \"is_anonymous\": false,\n  \"payment_method_id\": \"pm_xxx\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Stripe webhook (signed)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Stripe-Signature", "value": "t=...,v1=..." }
+            ],
+            "url": { "raw": "{{baseUrl}}/webhooks/stripe", "host": ["{{baseUrl}}"], "path": ["webhooks", "stripe"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"payment_intent.succeeded\",\n  \"data\": { \"object\": { \"id\": \"pi_xxx\" } }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Memberships",
+      "item": [
+        {
+          "name": "Subscribe to tier",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/creators/{{username}}/memberships",
+              "host": ["{{baseUrl}}"],
+              "path": ["creators", "{{username}}", "memberships"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tier_id\": 11,\n  \"supporter_name\": \"Aria Patel\",\n  \"email\": \"aria@example.com\",\n  \"payment_method_id\": \"pm_xxx\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Cancel membership",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/memberships/55", "host": ["{{baseUrl}}"], "path": ["memberships", "55"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Dashboard - Overview",
+      "item": [
+        {
+          "name": "Get overview",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/overview", "host": ["{{baseUrl}}"], "path": ["dashboard", "overview"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Dashboard - Supporters",
+      "item": [
+        {
+          "name": "List supporters",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/supporters?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "supporters"],
+              "query": [
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "limit", "value": "20" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reply to a supporter",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/donations/101/reply", "host": ["{{baseUrl}}"], "path": ["donations", "101", "reply"] },
+            "body": { "mode": "raw", "raw": "{\n  \"message\": \"Thank you so much!\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Dashboard - Earnings",
+      "item": [
+        {
+          "name": "Get earnings summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/earnings", "host": ["{{baseUrl}}"], "path": ["dashboard", "earnings"] }
+          }
+        },
+        {
+          "name": "Get payout history",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/payouts", "host": ["{{baseUrl}}"], "path": ["dashboard", "payouts"] }
+          }
+        },
+        {
+          "name": "Request payout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/dashboard/payouts", "host": ["{{baseUrl}}"], "path": ["dashboard", "payouts"] },
+            "body": { "mode": "raw", "raw": "{}" }
+          }
+        },
+        {
+          "name": "Export earnings CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/earnings/export.csv",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "earnings", "export.csv"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Dashboard - Posts",
+      "item": [
+        {
+          "name": "List posts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/posts", "host": ["{{baseUrl}}"], "path": ["dashboard", "posts"] }
+          }
+        },
+        {
+          "name": "Create post",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/dashboard/posts", "host": ["{{baseUrl}}"], "path": ["dashboard", "posts"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Behind the scenes...\",\n  \"body\": \"full content\",\n  \"visibility\": \"public\",\n  \"status\": \"published\",\n  \"media_ids\": []\n}"
+            }
+          }
+        },
+        {
+          "name": "Update post",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{baseUrl}}/dashboard/posts/5", "host": ["{{baseUrl}}"], "path": ["dashboard", "posts", "5"] },
+            "body": { "mode": "raw", "raw": "{\n  \"visibility\": \"members\",\n  \"status\": \"published\"\n}" }
+          }
+        },
+        {
+          "name": "Delete post",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/posts/5", "host": ["{{baseUrl}}"], "path": ["dashboard", "posts", "5"] }
+          }
+        },
+        {
+          "name": "Upload post media",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/posts/media", "host": ["{{baseUrl}}"], "path": ["dashboard", "posts", "media"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Dashboard - Memberships (tiers)",
+      "item": [
+        {
+          "name": "Get tiers + summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/memberships", "host": ["{{baseUrl}}"], "path": ["dashboard", "memberships"] }
+          }
+        },
+        {
+          "name": "Create tier",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/memberships/tiers",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "memberships", "tiers"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Gold Member\",\n  \"price\": 15.00,\n  \"perks\": [\"Exclusive posts & downloads\", \"Monthly Q&A access\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Update tier",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/memberships/tiers/11",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "memberships", "tiers", "11"]
+            },
+            "body": { "mode": "raw", "raw": "{\n  \"price\": 18.00\n}" }
+          }
+        },
+        {
+          "name": "Delete tier",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/memberships/tiers/11",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "memberships", "tiers", "11"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Dashboard - Settings",
+      "item": [
+        {
+          "name": "Get settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/dashboard/settings", "host": ["{{baseUrl}}"], "path": ["dashboard", "settings"] }
+          }
+        },
+        {
+          "name": "Update profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "profile"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Sarah Chen\",\n  \"bio\": \"Digital artist...\",\n  \"username\": \"sarahchen\",\n  \"email\": \"sarah@example.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Upload avatar",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/avatar",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "avatar"]
+            },
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": [] }] }
+          }
+        },
+        {
+          "name": "Update notifications",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/notifications",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "notifications"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_supporter\": true,\n  \"new_message\": true,\n  \"weekly_report\": false,\n  \"marketing_emails\": false\n}"
+            }
+          }
+        },
+        {
+          "name": "Replace social links",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/socials",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "socials"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"socials\": [\n    { \"platform\": \"twitter\", \"url\": \"https://twitter.com/sarahchen\" },\n    { \"platform\": \"instagram\", \"url\": \"https://instagram.com/sarahchen\" }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Update goal",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/goal",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "goal"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"New iPad Pro for drawing streams\",\n  \"target_amount\": 500.00,\n  \"is_active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Stripe connect",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/stripe/connect",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "stripe", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Stripe status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/stripe/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "stripe", "status"]
+            }
+          }
+        },
+        {
+          "name": "Stripe disconnect",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/settings/stripe/disconnect",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "settings", "stripe", "disconnect"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Explore / Discovery",
+      "item": [
+        {
+          "name": "Explore creators",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/explore?limit=24",
+              "host": ["{{baseUrl}}"],
+              "path": ["explore"],
+              "query": [
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "category", "value": "", "disabled": true },
+                { "key": "limit", "value": "24" },
+                { "key": "cursor", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List categories",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] }
+          }
+        }
+      ]
+    }
+  ]
+}
