@@ -1,0 +1,5 @@
+.env
+/bin/
+/server
+/server.exe
+/uploads/
