@@ -11,6 +11,7 @@ import (
 
 	"brewme/internal/handler"
 	"brewme/internal/health"
+	appmiddleware "brewme/internal/middleware"
 )
 
 // Router builds the HTTP router for the API server.
@@ -30,7 +31,7 @@ func Router() http.Handler {
 		MaxAge:           300,
 	}))
 
-	r.Get("/health", health.ServerHealth)
+	r.Get("/api/v1/health", health.ServerHealth)
 
 	// Serve uploaded files (e.g. avatars) at /uploads/* from the local disk.
 	r.Handle("/uploads/*", http.StripPrefix("/uploads/", http.FileServer(http.Dir("uploads"))))
@@ -38,6 +39,12 @@ func Router() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", handler.Register)
+			r.Post("/login", handler.Login)
+			r.Post("/logout", appmiddleware.SessionMiddleware(handler.UserLogout))
+		})
+
+		r.Route("/category", func(r chi.Router) {
+			r.Get("/", handler.GetAllCategory)
 		})
 	})
 

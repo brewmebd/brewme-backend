@@ -6,15 +6,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"brewme/internal/database"
 	"brewme/internal/middleware"
+	"brewme/internal/model"
 	"brewme/internal/utils"
 
 	"github.com/go-sql-driver/mysql"
@@ -230,4 +233,86 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func Login(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req model.LoginRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "Invalid json", http.StatusBadRequest)
+		return
+	}
+
+	email := middleware.SanitizeHTML(req.Email)
+	password := req.Password
+
+	var password_hash string
+	var user_id int64
+	query := `SELECT id, password_hash FROM users WHERE email = ?`
+	err = database.DB.QueryRow(query, email).Scan(&user_id, &password_hash)
+	if err != nil {
+		http.Error(w, "Invalid database query", http.StatusInternalServerError)
+		fmt.Println(err)
+		return
+	}
+
+	if !utils.CheckPasswordHash(password, password_hash) {
+		http.Error(w, "Invalid credential", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := utils.CreateToken(email)
+	if err != nil {
+		http.Error(w, "Failed to create token", http.StatusInternalServerError)
+		return
+	}
+
+	// Session key by email (consistent with the JWT claims)
+	sessionKey := fmt.Sprintf("session:%s", email)
+
+	// Overwrite any existing session (single session per user)
+	database.Redis.Del(r.Context(), sessionKey)
+
+	sessionData, _ := json.Marshal(map[string]interface{}{
+		"token":      token,
+		"email":      email,
+		"user_id":    user_id,
+		"created_at": time.Now().Unix(),
+		"ip":         r.RemoteAddr,
+	})
+
+	if err := database.Redis.Set(r.Context(), sessionKey, sessionData, 24*time.Hour).Err(); err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Login successful",
+		"token":   token,
+	})
+}
+
+func UserLogout(w http.ResponseWriter, r *http.Request) {
+	// ✅ Use "email" — matches what SessionMiddleware sets in context
+	email, ok := r.Context().Value("email").(string)
+	if !ok || email == "" {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessionKey := fmt.Sprintf("session:%s", email)
+	database.Redis.Del(r.Context(), sessionKey)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Logged out successfully",
+	})
 }

@@ -10,10 +10,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// DB is the shared MySQL connection pool, set by Open.
 var DB *sql.DB
 
-// Open opens a MySQL connection pool using DATABASE_DSN and stores it in DB.
 func Open() error {
 	dsn := os.Getenv("DATABASE_DSN")
 	if dsn == "" {

@@ -2,9 +2,16 @@
 package middleware
 
 import (
+	"brewme/internal/database"
+	"brewme/internal/utils"
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/html"
 )
 
@@ -40,4 +47,49 @@ func SanitizeHTML(input string) string {
 		return html.EscapeString(input) // Fallback to escaping
 	}
 	return stripped
+}
+
+func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		// 1. Extract token
+		tokenStr := utils.GetTokenFromHeader(r) // reuse your existing helper
+		if tokenStr == "" {
+			http.Error(w, "Missing token", http.StatusUnauthorized)
+			return
+		}
+
+		// 2. Validate JWT signature & expiry
+		claims, err := utils.ValidateToken(tokenStr)
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// 3. Check Redis session exists
+		sessionKey := fmt.Sprintf("session:%s", claims.Email)
+		sessionJSON, err := database.Redis.Get(r.Context(), sessionKey).Result()
+		if err == redis.Nil {
+			http.Error(w, "Session expired or logged out", http.StatusUnauthorized)
+			return
+		} else if err != nil {
+			http.Error(w, "Session store error", http.StatusInternalServerError)
+			return
+		}
+
+		// 4. Verify stored token matches (blocks old tokens after re-login)
+		var sessionData map[string]interface{}
+		if err := json.Unmarshal([]byte(sessionJSON), &sessionData); err != nil {
+			http.Error(w, "Session corrupted", http.StatusInternalServerError)
+			return
+		}
+		if sessionData["token"] != tokenStr {
+			http.Error(w, "Token mismatch — please login again", http.StatusUnauthorized)
+			return
+		}
+
+		// 5. Pass email downstream via context
+		ctx := context.WithValue(r.Context(), "email", claims.Email)
+		next(w, r.WithContext(ctx))
+	}
 }
