@@ -78,7 +78,7 @@ brewme-backend/
 Load the schema (creates the `brewme` database, tables, views, and seed data):
 
 ```bash
-mysql -u root -p < database/brew.sql
+mysql -u root -p < database/brewme.sql
 ```
 
 > ⚠️ `brew.sql` drops and recreates the database — don't run it against data you
