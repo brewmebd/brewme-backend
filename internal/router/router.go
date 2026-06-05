@@ -43,6 +43,10 @@ func Router() http.Handler {
 			r.Post("/logout", appmiddleware.SessionMiddleware(handler.UserLogout))
 		})
 
+		r.Route("/profile", func(r chi.Router) {
+			r.Get("/", appmiddleware.SessionMiddleware(handler.GetUserProfile))
+		})
+
 		r.Route("/category", func(r chi.Router) {
 			r.Get("/", handler.GetAllCategory)
 		})

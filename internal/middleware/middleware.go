@@ -53,7 +53,7 @@ func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		// 1. Extract token
-		tokenStr := utils.GetTokenFromHeader(r) // reuse your existing helper
+		tokenStr, _ := utils.GetTokenFromHeader(r) // reuse your existing helper
 		if tokenStr == "" {
 			http.Error(w, "Missing token", http.StatusUnauthorized)
 			return

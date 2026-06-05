@@ -14,7 +14,7 @@ import (
 
 type JWTClaims struct {
 	Email  string
-	UserID int
+	UserID int64
 }
 
 func HashPassword(password string) (string, error) {
@@ -29,10 +29,11 @@ func CheckPasswordHash(password, hash string) bool {
 
 var secretKey = []byte("saikat29112003")
 
-func CreateToken(username string) (string, error) {
+func CreateToken(username string, userID int64) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{
 			"username": username,
+			"user_id":  userID,
 			"exp":      time.Now().Add(time.Hour * 24).Unix(),
 		})
 	tokenString, err := token.SignedString(secretKey)
@@ -64,23 +65,48 @@ func ValidateToken(tokenString string) (*JWTClaims, error) {
 		return nil, fmt.Errorf("invalid token claims")
 	}
 
-	return &JWTClaims{Email: email}, nil
+	userID, ok := claims["user_id"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	return &JWTClaims{Email: email, UserID: int64(userID)}, nil
 }
 
-func GetTokenFromHeader(r *http.Request) string {
-
+func GetTokenFromHeader(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
 
-	if authHeader == "" {
-		return ""
-	}
-
-	// Expected format: Bearer TOKEN
-	parts := strings.Split(authHeader, " ")
+	parts := strings.Fields(authHeader)
 
 	if len(parts) != 2 || parts[0] != "Bearer" {
-		return ""
+		return "", fmt.Errorf("invalid authorization header")
 	}
 
-	return parts[1]
+	return parts[1], nil
+}
+
+func GetUserIDFromToken(tokenString string) (int64, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+
+		return secretKey, nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
+		return 0, fmt.Errorf("invalid token")
+	}
+
+	userID, ok := claims["user_id"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("user_id not found in token")
+	}
+
+	return int64(userID), nil
 }
