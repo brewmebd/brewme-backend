@@ -40,3 +40,34 @@ func GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		"profile_info": info,
 	})
 }
+
+func isUsernameTaken(username string) bool {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)"
+	_ = database.DB.QueryRow(query, username).Scan(&exists)
+	return exists
+}
+
+func CheckUsername(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid Method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	username := r.URL.Query().Get("username")
+
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	available := !isUsernameTaken(username)
+
+	response := map[string]interface{}{
+		"username":  username,
+		"available": available,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}

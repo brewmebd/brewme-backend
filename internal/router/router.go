@@ -40,7 +40,13 @@ func Router() http.Handler {
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/register", handler.Register)
 			r.Post("/login", handler.Login)
+			r.Get("/username-available", handler.CheckUsername)
 			r.Post("/logout", appmiddleware.SessionMiddleware(handler.UserLogout))
+		})
+
+		r.Route("/creators", func(r chi.Router) {
+			r.Get("/{username}", handler.GetCreatorProfile)
+			r.Get("/{username}/supporters", handler.GetSupportersFeed)
 		})
 
 		r.Route("/profile", func(r chi.Router) {
