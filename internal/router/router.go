@@ -47,6 +47,7 @@ func Router() http.Handler {
 		r.Route("/creators", func(r chi.Router) {
 			r.Get("/{username}", handler.GetCreatorProfile)
 			r.Get("/{username}/supporters", handler.GetSupportersFeed)
+			r.Get("/{username}/posts", handler.GetCreatorPublicPosts)
 		})
 
 		r.Route("/profile", func(r chi.Router) {

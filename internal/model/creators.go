@@ -24,6 +24,11 @@ type GetSupportersFeed struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
-type GetCreatorPosts struct {
-	
+type PublicPostItem struct {
+	ID            int64     `json:"id"`
+	Title         string    `json:"title"`
+	Preview       string    `json:"preview"`
+	LikesCount    int64     `json:"likes_count"`
+	CommentsCount int64     `json:"comments_count"`
+	PublishedAt   time.Time `json:"published_at"`
 }

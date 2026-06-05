@@ -191,3 +191,101 @@ func GetSupportersFeed(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error encoding feed response: %v", err)
 	}
 }
+
+func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
+	// 1. Extract and sanitize the username from the path
+	rawUsername := chi.URLParam(r, "username")
+	username := middleware.SanitizeHTML(rawUsername)
+
+	if username == "" {
+		http.Error(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	// 2. Extract and parse the limit from the query string (e.g., ?limit=10)
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10 // Default limit if not provided
+
+	if limitStr != "" {
+		parsedLimit, err := strconv.Atoi(limitStr)
+		if err == nil && parsedLimit > 0 {
+			// Cap the maximum limit to prevent excessive data loading
+			if parsedLimit > 50 {
+				limit = 50
+			} else {
+				limit = parsedLimit
+			}
+		}
+	}
+
+	// 3. Query the database using a JOIN to filter by username
+	// Only fetching 'published' and 'public' posts
+	query := `
+		SELECT 
+			p.id, 
+			p.title, 
+			p.preview, 
+			p.likes_count, 
+			p.comments_count, 
+			p.published_at
+		FROM posts p
+		JOIN users u ON p.user_id = u.id
+		WHERE u.username = ? 
+		  AND p.status = 'published' 
+		  AND p.visibility = 'public'
+		ORDER BY p.published_at DESC
+		LIMIT ?
+	`
+
+	rows, err := database.DB.Query(query, username, limit)
+	if err != nil {
+		log.Printf("Error querying public posts: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	// Initialize empty slice so JSON returns [] instead of null for creators with no posts
+	posts := make([]model.PublicPostItem, 0)
+
+	for rows.Next() {
+		var item model.PublicPostItem
+		var nullPreview sql.NullString
+		var nullPublishedAt sql.NullTime
+
+		err := rows.Scan(
+			&item.ID,
+			&item.Title,
+			&nullPreview,
+			&item.LikesCount,
+			&item.CommentsCount,
+			&nullPublishedAt,
+		)
+
+		if err != nil {
+			log.Printf("Error scanning post row: %v", err)
+			continue // Skip broken rows but keep processing the rest
+		}
+
+		// Handle the nullable fields safely
+		item.Preview = nullPreview.String
+		if nullPublishedAt.Valid {
+			item.PublishedAt = nullPublishedAt.Time
+		}
+
+		posts = append(posts, item)
+	}
+
+	if err = rows.Err(); err != nil {
+		log.Printf("Error iterating post rows: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Return the JSON response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(posts); err != nil {
+		log.Printf("Error encoding posts response: %v", err)
+	}
+}
