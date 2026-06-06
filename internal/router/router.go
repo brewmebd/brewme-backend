@@ -50,6 +50,13 @@ func Router() http.Handler {
 			r.Get("/{username}/posts", handler.GetCreatorPublicPosts)
 		})
 
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Get("/stats", appmiddleware.SessionMiddleware(handler.DashboardStats))
+			r.Get("/supporters", appmiddleware.SessionMiddleware(handler.LatestSupporters))
+			r.Get("/supporters-list", appmiddleware.SessionMiddleware(handler.GetSupportersList))
+			r.Post("/supporters/{id}/reply", appmiddleware.SessionMiddleware(handler.SubmitReply))
+		})
+
 		r.Route("/profile", func(r chi.Router) {
 			r.Get("/", appmiddleware.SessionMiddleware(handler.GetUserProfile))
 		})

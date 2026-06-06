@@ -30,6 +30,7 @@ func main() {
 
 	r := router.Router()
 
+	fmt.Println("Server starts at 8080 port")
 	err := http.ListenAndServe(":8080", r)
 	if err != nil {
 		fmt.Println("Server crushed")
