@@ -15,12 +15,14 @@ import (
 )
 
 func main() {
-	// Load .env if present (searches the working directory, then the backend
-	// root) so DATABASE_DSN etc. are available. Missing file is not fatal.
-	database.InitRedis()
+	// Load .env BEFORE anything reads the environment, so REDIS_* / DATABASE_DSN
+	// from the file (working dir, then backend root) are visible to InitRedis()
+	// and Open(). Missing file is not fatal.
 	if err := godotenv.Load(); err != nil {
 		_ = godotenv.Load("../../.env")
 	}
+
+	database.InitRedis()
 
 	if err := database.Open(); err != nil {
 		fmt.Println("Database connection failed:", err)
