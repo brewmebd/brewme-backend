@@ -1,0 +1,74 @@
+name: Build & Deploy BrewMe API
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Setup Go (version is read from go.mod -> 1.25)
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # 3. Cache dependencies (faster builds)
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      # 4. Install dependencies
+      - name: Download dependencies
+        run: go mod download
+
+      # 5. Build binary (entrypoint is ./cmd/server)
+      - name: Build binary
+        run: |
+          set -e
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o brewme ./cmd/server
+
+      # 6. Upload binary to server
+      - name: Copy binary to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "brewme"
+          target: "/var/www/brewme-backend/"
+
+      # 7. Restart service safely
+      - name: Restart service via Supervisor
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          port: ${{ secrets.SSH_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            chmod +x /var/www/brewme-backend/brewme
+
+            # Reload supervisor config (safe update)
+            supervisorctl reread
+            supervisorctl update
+
+            # Restart app
+            supervisorctl restart brewme-backend
+
+            # Show status
+            supervisorctl status brewme-backend
