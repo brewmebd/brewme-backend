@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/joho/godotenv"
 
@@ -32,11 +33,15 @@ func main() {
 
 	r := router.Router()
 
-	fmt.Println("Server starts at 8080 port")
-	err := http.ListenAndServe(":8080", r)
-	if err != nil {
-		fmt.Println("Server crushed")
-	} else {
-		fmt.Println("Server Started")
+	// Port from PORT env (set in .env); default 8080.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	fmt.Printf("Server starts on port %s\n", port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		// Print the real reason (e.g. "address already in use") so failures are diagnosable.
+		fmt.Println("Server failed:", err)
 	}
 }
