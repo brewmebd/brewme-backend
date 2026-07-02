@@ -6,6 +6,7 @@ import (
 	"brewme/internal/utils"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -34,9 +35,24 @@ func SubmitReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	donationID, err := strconv.ParseInt(idStr, 10, 64)
+	supporterID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid Supporter ID format", http.StatusBadRequest)
+		return
+	}
+
+	// 2b. Determine which kind of supporter we are replying to. Donations and
+	// memberships live in separate tables with independent id sequences, so the
+	// same id can exist in both — the type disambiguates which row to update.
+	// Defaults to "coffee" (donations) for backwards compatibility.
+	table := "donations"
+	switch r.URL.Query().Get("type") {
+	case "", "coffee":
+		table = "donations"
+	case "membership":
+		table = "memberships"
+	default:
+		http.Error(w, "Invalid supporter type", http.StatusBadRequest)
 		return
 	}
 
@@ -55,12 +71,14 @@ func SubmitReply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5. Update the Database
-	// We ensure `user_id = ?` to guarantee a creator can only reply to their own supporters.
-	result, err := database.DB.Exec(`
-		UPDATE donations 
-		SET reply_message = ?, replied_at = CURRENT_TIMESTAMP 
-		WHERE id = ? AND user_id = ?`,
-		reqBody.Message, donationID, userID,
+	// We ensure `user_id = ?` to guarantee a creator can only reply to their own
+	// supporters. `table` is chosen from a fixed whitelist above, never user text,
+	// so interpolating it here is safe from SQL injection.
+	result, err := database.DB.Exec(fmt.Sprintf(`
+		UPDATE %s
+		SET reply_message = ?, replied_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND user_id = ?`, table),
+		reqBody.Message, supporterID, userID,
 	)
 
 	if err != nil {
@@ -146,8 +164,8 @@ func GetSupportersList(w http.ResponseWriter, r *http.Request) {
 			0 as supporter_cups,
 			started_at as created_at,
 			'membership' as support_type,
-			FALSE as support_replied,
-			NULL as creator_reply
+			(reply_message IS NOT NULL) as support_replied,
+			reply_message as creator_reply
 		FROM memberships
 		WHERE user_id = ? AND status = 'active'
 		

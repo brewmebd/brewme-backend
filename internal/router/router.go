@@ -24,7 +24,7 @@ func Router() http.Handler {
 	r.Use(middleware.Throttle(100))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"https://*", "http://*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: false,
@@ -59,6 +59,22 @@ func Router() http.Handler {
 			r.Get("/supporters", appmiddleware.SessionMiddleware(handler.LatestSupporters))
 			r.Get("/supporters-list", appmiddleware.SessionMiddleware(handler.GetSupportersList))
 			r.Post("/supporters/{id}/reply", appmiddleware.SessionMiddleware(handler.SubmitReply))
+			r.Get("/posts", appmiddleware.SessionMiddleware(handler.GetDashboardPosts))
+			r.Post("/posts", appmiddleware.SessionMiddleware(handler.CreatePost))
+			r.Put("/posts/{id}", appmiddleware.SessionMiddleware(handler.UpdatePost))
+			r.Delete("/posts/{id}", appmiddleware.SessionMiddleware(handler.DeletePost))
+			r.Get("/earnings", appmiddleware.SessionMiddleware(handler.GetDashboardEarnings))
+			r.Get("/memberships", appmiddleware.SessionMiddleware(handler.GetDashboardMemberships))
+			r.Post("/memberships", appmiddleware.SessionMiddleware(handler.CreateDashboardMembershipTier))
+			r.Put("/memberships/{id}", appmiddleware.SessionMiddleware(handler.UpdateDashboardMembershipTier))
+			r.Delete("/memberships/{id}", appmiddleware.SessionMiddleware(handler.DeleteDashboardMembershipTier))
+			r.Get("/settings", appmiddleware.SessionMiddleware(handler.GetDashboardSettings))
+			r.Patch("/settings/profile", appmiddleware.SessionMiddleware(handler.UpdateDashboardProfile))
+			r.Post("/settings/avatar", appmiddleware.SessionMiddleware(handler.UpdateDashboardAvatar))
+			r.Patch("/settings/notifications", appmiddleware.SessionMiddleware(handler.UpdateDashboardNotifications))
+			r.Put("/settings/goal", appmiddleware.SessionMiddleware(handler.UpdateDashboardGoal))
+			r.Get("/settings/stripe/status", appmiddleware.SessionMiddleware(handler.GetDashboardStripeStatus))
+			r.Post("/payouts", appmiddleware.SessionMiddleware(handler.RequestPayout))
 		})
 
 		r.Route("/profile", func(r chi.Router) {

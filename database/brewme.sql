@@ -125,6 +125,8 @@ CREATE TABLE `memberships` (
   `amount` decimal(10,2) NOT NULL,
   `status` enum('active','past_due','canceled','paused') NOT NULL DEFAULT 'active',
   `stripe_subscription_id` varchar(255) DEFAULT NULL,
+  `reply_message` text DEFAULT NULL,
+  `replied_at` timestamp NULL DEFAULT NULL,
   `started_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `current_period_end` timestamp NULL DEFAULT NULL,
   `canceled_at` timestamp NULL DEFAULT NULL,
@@ -191,6 +193,7 @@ CREATE TABLE `posts` (
   `title` varchar(255) NOT NULL,
   `body` mediumtext DEFAULT NULL,
   `preview` varchar(500) DEFAULT NULL,
+  `image_url` varchar(1000) DEFAULT NULL,
   `visibility` enum('public','members') NOT NULL DEFAULT 'public',
   `status` enum('draft','published') NOT NULL DEFAULT 'published',
   `likes_count` int(10) unsigned NOT NULL DEFAULT 0,
@@ -290,8 +293,8 @@ select
   NULL AS `message`,
   0 AS `cups`,
   `m`.`amount` AS `amount`,
-  0 AS `replied`,
-  `m`.`started_at` AS `created_at` 
+  `m`.`reply_message` is not null AS `replied`,
+  `m`.`started_at` AS `created_at`
 from `memberships` `m`;
 
 -- 17. Seed Data
