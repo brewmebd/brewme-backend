@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -455,6 +456,26 @@ func GetDashboardSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	response.Stripe.CardLast4 = cardLast4.String
 
+	response.SocialLinks = make([]string, 0)
+	linksRows, err := database.DB.Query(`SELECT url FROM social_links WHERE user_id = ? ORDER BY sort_order ASC, id ASC`, userID)
+	if err == nil {
+		defer linksRows.Close()
+		for linksRows.Next() {
+			var urlStr string
+			if err := linksRows.Scan(&urlStr); err == nil {
+				response.SocialLinks = append(response.SocialLinks, urlStr)
+			}
+		}
+	}
+
+	if accountID, connected, err := loadStripePayoutAccount(userID); err == nil && accountID != "" {
+		if refreshed, err := refreshStripePayoutStatus(userID, accountID); err == nil {
+			response.Stripe.IsConnected = refreshed
+		} else {
+			response.Stripe.IsConnected = connected
+		}
+	}
+
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -510,6 +531,31 @@ func UpdateDashboardProfile(w http.ResponseWriter, r *http.Request) {
 	if rowsAffected == 0 {
 		http.Error(w, "Profile not found", http.StatusNotFound)
 		return
+	}
+
+	// Sync Social Links
+	_, _ = database.DB.Exec(`DELETE FROM social_links WHERE user_id = ?`, userID)
+	for idx, link := range req.SocialLinks {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			continue
+		}
+		platform := "web"
+		lowerLink := strings.ToLower(link)
+		if strings.Contains(lowerLink, "twitter.com") || strings.Contains(lowerLink, "x.com") {
+			platform = "twitter"
+		} else if strings.Contains(lowerLink, "instagram.com") {
+			platform = "instagram"
+		} else if strings.Contains(lowerLink, "youtube.com") {
+			platform = "youtube"
+		}
+
+		_, err = database.DB.Exec(`
+			INSERT INTO social_links (user_id, platform, url, sort_order)
+			VALUES (?, ?, ?, ?)`, userID, platform, link, idx)
+		if err != nil {
+			log.Printf("Error inserting social link: %v", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": true, "message": "Profile updated successfully"})

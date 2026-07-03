@@ -16,5 +16,6 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/stripe/stripe-go/v81 v81.4.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 )

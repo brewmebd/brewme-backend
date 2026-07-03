@@ -2,13 +2,22 @@ package model
 
 import "time"
 
+type CreatorMembershipTier struct {
+	ID    int64    `json:"id"`
+	Name  string   `json:"name"`
+	Price float64  `json:"price"`
+	Perks []string `json:"perks"`
+}
+
 type GetCreatorProfile struct {
-	CreatorImage    string   `json:"creator_image"`
-	CreatorName     string   `json:"creator_name"`
-	CreatorCategory string   `json:"creator_category"`
-	CreatorBio      string   `json:"creator_bio"`
-	CreatorLinks    []string `json:"creator_links"`
-	TotalCups       int64    `json:"total_cups"`
+	CreatorImage    string                  `json:"creator_image"`
+	CreatorName     string                  `json:"creator_name"`
+	CreatorCategory string                  `json:"creator_category"`
+	CreatorBio      string                  `json:"creator_bio"`
+	CreatorLinks    []string                `json:"creator_links"`
+	TotalCups       int64                   `json:"total_cups"`
+	TotalSupporters int64                   `json:"total_supporters"`
+	Tiers           []CreatorMembershipTier `json:"tiers"`
 }
 
 type GetSupportersFeed struct {
@@ -31,4 +40,5 @@ type PublicPostItem struct {
 	LikesCount    int64     `json:"likes_count"`
 	CommentsCount int64     `json:"comments_count"`
 	PublishedAt   time.Time `json:"published_at"`
+	MembersOnly   bool      `json:"membersOnly"`
 }

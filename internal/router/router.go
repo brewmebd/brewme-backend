@@ -48,7 +48,11 @@ func Router() http.Handler {
 			r.Get("/{username}", handler.GetCreatorProfile)
 			r.Get("/{username}/supporters", handler.GetSupportersFeed)
 			r.Get("/{username}/posts", handler.GetCreatorPublicPosts)
+			r.Post("/{username}/donations", handler.CreateDonationCheckout)
+			r.Post("/{username}/memberships", handler.CreateMembershipCheckout)
 		})
+
+		r.Post("/webhooks/stripe", handler.StripeWebhook)
 
 		r.Route("/discover", func(r chi.Router) {
 			r.Get("/", handler.GetAllCreator)
@@ -73,7 +77,8 @@ func Router() http.Handler {
 			r.Post("/settings/avatar", appmiddleware.SessionMiddleware(handler.UpdateDashboardAvatar))
 			r.Patch("/settings/notifications", appmiddleware.SessionMiddleware(handler.UpdateDashboardNotifications))
 			r.Put("/settings/goal", appmiddleware.SessionMiddleware(handler.UpdateDashboardGoal))
-			r.Get("/settings/stripe/status", appmiddleware.SessionMiddleware(handler.GetDashboardStripeStatus))
+			r.Get("/settings/stripe/status", appmiddleware.SessionMiddleware(handler.GetStripeConnectStatus))
+			r.Post("/settings/stripe/connect", appmiddleware.SessionMiddleware(handler.CreateStripeConnectLink))
 			r.Post("/payouts", appmiddleware.SessionMiddleware(handler.RequestPayout))
 		})
 

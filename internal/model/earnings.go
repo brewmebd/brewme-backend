@@ -11,12 +11,15 @@ type PayoutItem struct {
 // EarningsResponse is the dashboard Earnings payload. Money fields are
 // pre-formatted strings ($ + thousands separators) to match the frontend.
 type EarningsResponse struct {
-	TotalEarned      string       `json:"total_earned"`
-	TotalChange      string       `json:"total_change"`
-	AvailableBalance string       `json:"available_balance"`
-	TotalPayoutsSum  string       `json:"total_payouts_sum"`
-	ChartData        []ChartEntry `json:"chart_data"`
-	Payouts          []PayoutItem `json:"payouts"`
+	TotalEarned        string       `json:"total_earned"`
+	NetEarned          string       `json:"net_earned"`
+	PlatformFeePercent int64        `json:"platform_fee_percent"`
+	TotalChange        string       `json:"total_change"`
+	AvailableBalance   string       `json:"available_balance"`
+	TotalPayoutsSum    string       `json:"total_payouts_sum"`
+	ChartData          []ChartEntry `json:"chart_data"`
+	Payouts            []PayoutItem `json:"payouts"`
+	StripeConnected    bool         `json:"stripe_connected"`
 }
 
 // PayoutRequest is the body for requesting a payout.

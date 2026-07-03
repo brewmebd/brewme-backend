@@ -277,7 +277,7 @@ CREATE VIEW `supporter_feed` AS
 select 
   `d`.`user_id` AS `user_id`,
   'coffee' AS `support_type`,
-  coalesce(`d`.`display_name`,'Anonymous') AS `display_name`,
+  case when `d`.`is_anonymous` = 1 then 'Anonymous' else coalesce(`d`.`display_name`,'Anonymous') end AS `display_name`,
   `d`.`message` AS `message`,
   `d`.`cups` AS `cups`,
   `d`.`amount` AS `amount`,
@@ -295,7 +295,8 @@ select
   `m`.`amount` AS `amount`,
   `m`.`reply_message` is not null AS `replied`,
   `m`.`started_at` AS `created_at`
-from `memberships` `m`;
+from `memberships` `m`
+where `m`.`status` = 'active';
 
 -- 17. Seed Data
 INSERT INTO `categories` (`id`, `name`, `slug`, `created_at`) VALUES

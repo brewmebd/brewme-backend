@@ -43,7 +43,9 @@ func GetDashboardEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	available := totalEarned - totalPaidOut - pendingPayouts
+	platformFeePercent := getPlatformFeePercent()
+	netEarned := totalEarned * (1 - float64(platformFeePercent)/100)
+	available := netEarned - totalPaidOut - pendingPayouts
 	if available < 0 {
 		available = 0
 	}
@@ -75,13 +77,26 @@ func GetDashboardEarnings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var stripeConnected bool
+	var stripeAccountID string
+	err = database.DB.QueryRow(`
+		SELECT stripe_account_id 
+		FROM stripe_accounts 
+		WHERE user_id = ?`, userID).Scan(&stripeAccountID)
+	if err == nil && stripeAccountID != "" {
+		stripeConnected = true
+	}
+
 	writeJSON(w, http.StatusOK, model.EarningsResponse{
-		TotalEarned:      formatMoney(totalEarned),
-		TotalChange:      formatPct(changePct),
-		AvailableBalance: formatMoney(available),
-		TotalPayoutsSum:  formatMoney(totalPaidOut),
-		ChartData:        chart,
-		Payouts:          payouts,
+		TotalEarned:        formatMoney(totalEarned),
+		NetEarned:          formatMoney(netEarned),
+		PlatformFeePercent: platformFeePercent,
+		TotalChange:        formatPct(changePct),
+		AvailableBalance:   formatMoney(available),
+		TotalPayoutsSum:    formatMoney(totalPaidOut),
+		ChartData:          chart,
+		Payouts:            payouts,
+		StripeConnected:    stripeConnected,
 	})
 }
 

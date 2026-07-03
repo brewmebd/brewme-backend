@@ -46,20 +46,21 @@ type DashboardGoal struct {
 	Amount float64 `json:"goal_amount"`
 }
 
-// DashboardSettingsResponse is the full bootstrap payload for the Settings page.
 type DashboardSettingsResponse struct {
 	Profile       CreatorProfile         `json:"profile"`
 	Notifications DashboardNotifications `json:"notifications"`
 	Stripe        DashboardStripeStatus  `json:"stripe"`
 	Goal          DashboardGoal          `json:"goal"`
+	SocialLinks   []string               `json:"social_links"`
 }
 
 // UpdateDashboardProfileRequest updates the public creator identity fields.
 type UpdateDashboardProfileRequest struct {
-	Name     string `json:"name"`
-	Bio      string `json:"bio"`
-	Email    string `json:"email"`
-	Category string `json:"category"`
+	Name        string   `json:"name"`
+	Bio         string   `json:"bio"`
+	Email       string   `json:"email"`
+	Category    string   `json:"category"`
+	SocialLinks []string `json:"social_links"`
 }
 
 // UpdateDashboardNotificationsRequest updates notification preferences.

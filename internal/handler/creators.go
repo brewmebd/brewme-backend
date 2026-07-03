@@ -4,8 +4,10 @@ import (
 	"brewme/internal/database"
 	"brewme/internal/middleware"
 	"brewme/internal/model"
+	"brewme/internal/utils"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -39,7 +41,8 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 			u.full_name, 
 			c.name, 
 			u.bio, 
-			COALESCE(SUM(d.cups), 0) AS total_cups
+			COALESCE(SUM(d.cups), 0) AS total_cups,
+			(SELECT COUNT(*) FROM supporters WHERE user_id = u.id) AS total_supporters
 		FROM users u
 		LEFT JOIN categories c ON u.category_id = c.id
 		LEFT JOIN donations d ON u.id = d.user_id AND d.status = 'succeeded'
@@ -53,6 +56,7 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 		&categoryName,
 		&bio,
 		&profile.TotalCups,
+		&profile.TotalSupporters,
 	)
 
 	if err != nil {
@@ -96,6 +100,43 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error iterating over social links: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+
+	// Query membership tiers for the creator
+	tiersQuery := `SELECT id, name, price FROM membership_tiers WHERE user_id = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC`
+	rowsTiers, err := database.DB.Query(tiersQuery, userID)
+	if err != nil {
+		log.Printf("Error querying membership tiers: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	defer rowsTiers.Close()
+
+	profile.Tiers = make([]model.CreatorMembershipTier, 0)
+	for rowsTiers.Next() {
+		var tier model.CreatorMembershipTier
+		if err := rowsTiers.Scan(&tier.ID, &tier.Name, &tier.Price); err != nil {
+			log.Printf("Error scanning tier row: %v", err)
+			continue
+		}
+
+		// Query perks for this tier
+		perksQuery := `SELECT perk_text FROM tier_perks WHERE tier_id = ? ORDER BY sort_order ASC, id ASC`
+		rowsPerks, err := database.DB.Query(perksQuery, tier.ID)
+		if err != nil {
+			log.Printf("Error querying perks: %v", err)
+			continue
+		}
+		defer rowsPerks.Close()
+
+		tier.Perks = make([]string, 0)
+		for rowsPerks.Next() {
+			var perk string
+			if err := rowsPerks.Scan(&perk); err == nil {
+				tier.Perks = append(tier.Perks, perk)
+			}
+		}
+		profile.Tiers = append(profile.Tiers, tier)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -218,8 +259,51 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 3. Query the database using a JOIN to filter by username
-	// Only fetching 'published' and 'public' posts
+	// 3. Resolve Creator User ID
+	var creatorUserID int64
+	err := database.DB.QueryRow(`SELECT id FROM users WHERE username = ?`, username).Scan(&creatorUserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Creator not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Error resolving creator ID: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Resolve Viewer Authentication & Membership Status
+	var viewerEmail string
+	var viewerUserID int64
+	var isMember bool
+
+	token, err := utils.GetTokenFromHeader(r)
+	if err == nil {
+		if viewerID, err := utils.GetUserIDFromToken(token); err == nil {
+			viewerUserID = viewerID
+			_ = database.DB.QueryRow(`SELECT email FROM users WHERE id = ?`, viewerUserID).Scan(&viewerEmail)
+		}
+	}
+
+	if viewerUserID > 0 {
+		if viewerUserID == creatorUserID {
+			isMember = true
+		} else if viewerEmail != "" {
+			var count int
+			err := database.DB.QueryRow(`
+				SELECT COUNT(*)
+				FROM memberships m
+				JOIN supporters s ON m.supporter_id = s.id
+				WHERE m.user_id = ? AND s.email = ? AND m.status = 'active'`,
+				creatorUserID, viewerEmail,
+			).Scan(&count)
+			if err == nil && count > 0 {
+				isMember = true
+			}
+		}
+	}
+
+	// 5. Query both public and member-only published posts
 	query := `
 		SELECT 
 			p.id, 
@@ -227,17 +311,17 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 			p.preview, 
 			p.likes_count, 
 			p.comments_count, 
-			p.published_at
+			p.published_at,
+			p.visibility
 		FROM posts p
-		JOIN users u ON p.user_id = u.id
-		WHERE u.username = ? 
+		WHERE p.user_id = ? 
 		  AND p.status = 'published' 
-		  AND p.visibility = 'public'
+		  AND p.visibility IN ('public', 'members')
 		ORDER BY p.published_at DESC
 		LIMIT ?
 	`
 
-	rows, err := database.DB.Query(query, username, limit)
+	rows, err := database.DB.Query(query, creatorUserID, limit)
 	if err != nil {
 		log.Printf("Error querying public posts: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -252,6 +336,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 		var item model.PublicPostItem
 		var nullPreview sql.NullString
 		var nullPublishedAt sql.NullTime
+		var visibility string
 
 		err := rows.Scan(
 			&item.ID,
@@ -260,6 +345,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 			&item.LikesCount,
 			&item.CommentsCount,
 			&nullPublishedAt,
+			&visibility,
 		)
 
 		if err != nil {
@@ -273,6 +359,13 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 			item.PublishedAt = nullPublishedAt.Time
 		}
 
+		// If it's a members-only post and the viewer is not a member, mark as MembersOnly (blurred)
+		if visibility == "members" {
+			item.MembersOnly = !isMember
+		} else {
+			item.MembersOnly = false
+		}
+
 		posts = append(posts, item)
 	}
 
@@ -282,7 +375,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Return the JSON response
+	// 6. Return the JSON response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(posts); err != nil {
