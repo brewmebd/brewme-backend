@@ -39,9 +39,9 @@ func getStripeSecretKey() string {
 
 func loadStripePayoutAccount(userID int64) (accountID string, connected bool, err error) {
 	err = database.DB.QueryRow(`
-		SELECT COALESCE(external_account_id, ''), COALESCE(is_connected, 0)
+		SELECT COALESCE(external_account_id, ''), COALESCE(is_connected, FALSE)
 		FROM payout_accounts
-		WHERE user_id = ? AND provider = 'stripe'`, userID).Scan(&accountID, &connected)
+		WHERE user_id = $1 AND provider = 'stripe'`, userID).Scan(&accountID, &connected)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", false, nil
@@ -54,10 +54,10 @@ func loadStripePayoutAccount(userID int64) (accountID string, connected bool, er
 func upsertStripePayoutAccount(userID int64, accountID string, connected bool) error {
 	_, err := database.DB.Exec(`
 		INSERT INTO payout_accounts (user_id, provider, external_account_id, is_connected)
-		VALUES (?, 'stripe', ?, ?)
-		ON DUPLICATE KEY UPDATE
-			external_account_id = VALUES(external_account_id),
-			is_connected = VALUES(is_connected)`, userID, accountID, connected)
+		VALUES ($1, 'stripe', $2, $3)
+		ON CONFLICT (user_id, provider) DO UPDATE SET
+			external_account_id = EXCLUDED.external_account_id,
+			is_connected = EXCLUDED.is_connected`, userID, accountID, connected)
 	return err
 }
 
@@ -95,8 +95,8 @@ func refreshStripePayoutStatus(userID int64, accountID string) (bool, error) {
 	connected := payload.DetailsSubmitted && payload.PayoutsEnabled
 	if _, err := database.DB.Exec(`
 		UPDATE payout_accounts
-		SET is_connected = ?
-		WHERE user_id = ? AND provider = 'stripe'`, connected, userID); err != nil {
+		SET is_connected = $1
+		WHERE user_id = $2 AND provider = 'stripe'`, connected, userID); err != nil {
 		return false, err
 	}
 
@@ -118,7 +118,7 @@ func CreateStripeConnectLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var fullName, email string
-	if err := database.DB.QueryRow(`SELECT full_name, email FROM users WHERE id = ?`, userID).Scan(&fullName, &email); err != nil {
+	if err := database.DB.QueryRow(`SELECT full_name, email FROM users WHERE id = $1`, userID).Scan(&fullName, &email); err != nil {
 		http.Error(w, "Error loading creator profile", http.StatusInternalServerError)
 		return
 	}

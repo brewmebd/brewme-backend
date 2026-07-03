@@ -36,7 +36,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	err = database.DB.QueryRow(`
 		SELECT total_earned, supporter_count 
 		FROM creator_earnings 
-		WHERE user_id = ?`,
+		WHERE user_id = $1`,
 		userID,
 	).Scan(&totalEarned, &totalSupporters)
 
@@ -51,7 +51,7 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	err = database.DB.QueryRow(`
 		SELECT COUNT(*) 
 		FROM posts 
-		WHERE user_id = ? AND status = 'published'`,
+		WHERE user_id = $1 AND status = 'published'`,
 		userID,
 	).Scan(&totalPosts)
 
@@ -65,8 +65,8 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	var monthlyEarned float64
 	err = database.DB.QueryRow(`
 		SELECT 
-			COALESCE((SELECT SUM(amount) FROM donations WHERE user_id = ? AND status = 'succeeded' AND MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())), 0) +
-			COALESCE((SELECT SUM(amount) FROM memberships WHERE user_id = ? AND status = 'active' AND MONTH(started_at) = MONTH(CURRENT_DATE()) AND YEAR(started_at) = YEAR(CURRENT_DATE())), 0)
+			COALESCE((SELECT SUM(amount) FROM donations WHERE user_id = $1 AND status = 'succeeded' AND EXTRACT(MONTH FROM created_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)), 0) +
+			COALESCE((SELECT SUM(amount) FROM memberships WHERE user_id = $2 AND status = 'active' AND EXTRACT(MONTH FROM started_at) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM started_at) = EXTRACT(YEAR FROM CURRENT_DATE)), 0)
 		`, userID, userID).Scan(&monthlyEarned)
 
 	if err != nil {
@@ -79,15 +79,15 @@ func DashboardStats(w http.ResponseWriter, r *http.Request) {
 	// Note: := is valid here because 'rows' is a completely new variable
 	rows, err := database.DB.Query(`
 		SELECT 
-			DATE_FORMAT(date_col, '%b') as month_name,
+			TO_CHAR(date_col, 'Mon') as month_name,
 			SUM(amount) as monthly_total
 		FROM (
-			SELECT created_at as date_col, amount FROM donations WHERE user_id = ? AND status = 'succeeded' AND YEAR(created_at) = YEAR(CURRENT_DATE())
+			SELECT created_at as date_col, amount FROM donations WHERE user_id = $1 AND status = 'succeeded' AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)
 			UNION ALL
-			SELECT started_at as date_col, amount FROM memberships WHERE user_id = ? AND status = 'active' AND YEAR(started_at) = YEAR(CURRENT_DATE())
+			SELECT started_at as date_col, amount FROM memberships WHERE user_id = $2 AND status = 'active' AND EXTRACT(YEAR FROM started_at) = EXTRACT(YEAR FROM CURRENT_DATE)
 		) as combined_earnings
-		GROUP BY MONTH(date_col), month_name
-		ORDER BY MONTH(date_col) ASC`,
+		GROUP BY EXTRACT(MONTH FROM date_col), month_name
+		ORDER BY EXTRACT(MONTH FROM date_col) ASC`,
 		userID, userID,
 	)
 
@@ -180,9 +180,9 @@ func LatestSupporters(w http.ResponseWriter, r *http.Request) {
 			support_type, 
 			replied
 		FROM supporter_feed 
-		WHERE user_id = ? 
+		WHERE user_id = $1 
 		ORDER BY created_at DESC 
-		LIMIT ?`,
+		LIMIT $2`,
 		userID, limit,
 	)
 

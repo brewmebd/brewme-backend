@@ -28,7 +28,7 @@ func loadMembershipPerks(tierID int64) ([]string, error) {
 	rows, err := database.DB.Query(`
 		SELECT perk_text
 		FROM tier_perks
-		WHERE tier_id = ?
+		WHERE tier_id = $1
 		ORDER BY sort_order ASC, id ASC`, tierID)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func loadMembershipTier(userID, tierID int64) (*model.DashboardMembershipTier, e
 	err := database.DB.QueryRow(`
 		SELECT id, name, price, is_active
 		FROM membership_tiers
-		WHERE id = ? AND user_id = ?`, tierID, userID).Scan(
+		WHERE id = $1 AND user_id = $2`, tierID, userID).Scan(
 		&tier.ID,
 		&tier.Name,
 		&tier.Price,
@@ -65,7 +65,7 @@ func loadMembershipTier(userID, tierID int64) (*model.DashboardMembershipTier, e
 	err = database.DB.QueryRow(`
 		SELECT COUNT(*)
 		FROM memberships
-		WHERE user_id = ? AND tier_id = ? AND status = 'active'`, userID, tierID).Scan(&tier.SubscriberCount)
+		WHERE user_id = $1 AND tier_id = $2 AND status = 'active'`, userID, tierID).Scan(&tier.SubscriberCount)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func GetDashboardMemberships(w http.ResponseWriter, r *http.Request) {
 			COUNT(*),
 			COALESCE(SUM(amount), 0)
 		FROM memberships
-		WHERE user_id = ? AND status = 'active'`, userID).Scan(&response.Summary.TotalMembers, &response.Summary.MonthlyRevenue); err != nil {
+		WHERE user_id = $1 AND status = 'active'`, userID).Scan(&response.Summary.TotalMembers, &response.Summary.MonthlyRevenue); err != nil {
 		http.Error(w, "Error fetching membership summary", http.StatusInternalServerError)
 		return
 	}
@@ -100,7 +100,7 @@ func GetDashboardMemberships(w http.ResponseWriter, r *http.Request) {
 	if err := database.DB.QueryRow(`
 		SELECT COUNT(*)
 		FROM membership_tiers
-		WHERE user_id = ? AND is_active = 1`, userID).Scan(&response.Summary.ActiveTiers); err != nil {
+		WHERE user_id = $1 AND is_active = TRUE`, userID).Scan(&response.Summary.ActiveTiers); err != nil {
 		http.Error(w, "Error fetching active tiers", http.StatusInternalServerError)
 		return
 	}
@@ -108,7 +108,7 @@ func GetDashboardMemberships(w http.ResponseWriter, r *http.Request) {
 	rows, err := database.DB.Query(`
 		SELECT id
 		FROM membership_tiers
-		WHERE user_id = ? AND is_active = 1
+		WHERE user_id = $1 AND is_active = TRUE
 		ORDER BY sort_order ASC, id ASC`, userID)
 	if err != nil {
 		http.Error(w, "Error fetching tiers", http.StatusInternalServerError)
@@ -168,7 +168,7 @@ func CreateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 	if err := database.DB.QueryRow(`
 		SELECT COUNT(*)
 		FROM membership_tiers
-		WHERE user_id = ? AND is_active = 1`, userID).Scan(&activeCount); err != nil {
+		WHERE user_id = $1 AND is_active = TRUE`, userID).Scan(&activeCount); err != nil {
 		http.Error(w, "Error checking membership limit", http.StatusInternalServerError)
 		return
 	}
@@ -192,21 +192,17 @@ func CreateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 	if err := tx.QueryRow(`
 		SELECT COALESCE(MAX(sort_order), -1) + 1
 		FROM membership_tiers
-		WHERE user_id = ?`, userID).Scan(&sortOrder); err != nil {
+		WHERE user_id = $1`, userID).Scan(&sortOrder); err != nil {
 		http.Error(w, "Error calculating tier order", http.StatusInternalServerError)
 		return
 	}
 
-	result, err := tx.Exec(`
+	var tierID int64
+	err = tx.QueryRow(`
 		INSERT INTO membership_tiers (user_id, name, price, billing_period, sort_order, is_active)
-		VALUES (?, ?, ?, 'monthly', ?, 1)`, userID, req.Name, req.Price, sortOrder)
+		VALUES ($1, $2, $3, 'monthly', $4, TRUE) RETURNING id`, userID, req.Name, req.Price, sortOrder).Scan(&tierID)
 	if err != nil {
-		http.Error(w, "Error creating tier", http.StatusInternalServerError)
-		return
-	}
-
-	tierID, err := result.LastInsertId()
-	if err != nil {
+		log.Printf("Error creating tier: %v\n", err)
 		http.Error(w, "Error creating tier", http.StatusInternalServerError)
 		return
 	}
@@ -220,7 +216,8 @@ func CreateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 
 		if _, err := tx.Exec(`
 			INSERT INTO tier_perks (tier_id, perk_text, sort_order)
-			VALUES (?, ?, ?)`, tierID, perk, perkIndex); err != nil {
+			VALUES ($1, $2, $3)`, tierID, perk, perkIndex); err != nil {
+			log.Printf("Error saving perks: %v\n", err)
 			http.Error(w, "Error saving perks", http.StatusInternalServerError)
 			return
 		}
@@ -283,7 +280,7 @@ func UpdateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 	if err := tx.QueryRow(`
 		SELECT id
 		FROM membership_tiers
-		WHERE id = ? AND user_id = ?`, tierID, userID).Scan(&existing); err != nil {
+		WHERE id = $1 AND user_id = $2`, tierID, userID).Scan(&existing); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Tier not found", http.StatusNotFound)
 			return
@@ -294,13 +291,13 @@ func UpdateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := tx.Exec(`
 		UPDATE membership_tiers
-		SET name = ?, price = ?, is_active = 1
-		WHERE id = ? AND user_id = ?`, req.Name, req.Price, tierID, userID); err != nil {
+		SET name = $1, price = $2, is_active = TRUE
+		WHERE id = $3 AND user_id = $4`, req.Name, req.Price, tierID, userID); err != nil {
 		http.Error(w, "Error updating tier", http.StatusInternalServerError)
 		return
 	}
 
-	if _, err := tx.Exec(`DELETE FROM tier_perks WHERE tier_id = ?`, tierID); err != nil {
+	if _, err := tx.Exec(`DELETE FROM tier_perks WHERE tier_id = $1`, tierID); err != nil {
 		http.Error(w, "Error resetting perks", http.StatusInternalServerError)
 		return
 	}
@@ -314,7 +311,7 @@ func UpdateDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 
 		if _, err := tx.Exec(`
 			INSERT INTO tier_perks (tier_id, perk_text, sort_order)
-			VALUES (?, ?, ?)`, tierID, perk, perkIndex); err != nil {
+			VALUES ($1, $2, $3)`, tierID, perk, perkIndex); err != nil {
 			http.Error(w, "Error saving perks", http.StatusInternalServerError)
 			return
 		}
@@ -351,8 +348,8 @@ func DeleteDashboardMembershipTier(w http.ResponseWriter, r *http.Request) {
 
 	result, err := database.DB.Exec(`
 		UPDATE membership_tiers
-		SET is_active = 0
-		WHERE id = ? AND user_id = ?`, tierID, userID)
+		SET is_active = FALSE
+		WHERE id = $1 AND user_id = $2`, tierID, userID)
 	if err != nil {
 		http.Error(w, "Error archiving tier", http.StatusInternalServerError)
 		return
@@ -400,18 +397,18 @@ func GetDashboardSettings(w http.ResponseWriter, r *http.Request) {
 			COALESCE(c.name, ''),
 			COALESCE(g.label, ''),
 			COALESCE(g.target_amount, 0),
-			COALESCE(n.new_supporter, 1),
-			COALESCE(n.new_message, 1),
-			COALESCE(n.weekly_report, 0),
-			COALESCE(n.marketing_emails, 0),
-			COALESCE(p.is_connected, 0),
+			COALESCE(n.new_supporter, TRUE),
+			COALESCE(n.new_message, TRUE),
+			COALESCE(n.weekly_report, FALSE),
+			COALESCE(n.marketing_emails, FALSE),
+			COALESCE(p.is_connected, FALSE),
 			COALESCE(p.card_last4, '')
 		FROM users u
 		LEFT JOIN categories c ON c.id = u.category_id
-		LEFT JOIN goals g ON g.user_id = u.id AND g.is_active = 1
+		LEFT JOIN goals g ON g.user_id = u.id AND g.is_active = TRUE
 		LEFT JOIN notification_settings n ON n.user_id = u.id
 		LEFT JOIN payout_accounts p ON p.user_id = u.id AND p.provider = 'stripe'
-		WHERE u.id = ?`, userID).Scan(
+		WHERE u.id = $1`, userID).Scan(
 		&response.Profile.CreatorName,
 		&response.Profile.CreatorBio,
 		&response.Profile.CreatorUrl,
@@ -457,7 +454,7 @@ func GetDashboardSettings(w http.ResponseWriter, r *http.Request) {
 	response.Stripe.CardLast4 = cardLast4.String
 
 	response.SocialLinks = make([]string, 0)
-	linksRows, err := database.DB.Query(`SELECT url FROM social_links WHERE user_id = ? ORDER BY sort_order ASC, id ASC`, userID)
+	linksRows, err := database.DB.Query(`SELECT url FROM social_links WHERE user_id = $1 ORDER BY sort_order ASC, id ASC`, userID)
 	if err == nil {
 		defer linksRows.Close()
 		for linksRows.Next() {
@@ -504,7 +501,7 @@ func UpdateDashboardProfile(w http.ResponseWriter, r *http.Request) {
 
 	var categoryID sql.NullInt64
 	if req.Category != "" {
-		if err := database.DB.QueryRow(`SELECT id FROM categories WHERE name = ?`, req.Category).Scan(&categoryID); err != nil {
+		if err := database.DB.QueryRow(`SELECT id FROM categories WHERE name = $1`, req.Category).Scan(&categoryID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "Invalid category", http.StatusBadRequest)
 				return
@@ -516,8 +513,8 @@ func UpdateDashboardProfile(w http.ResponseWriter, r *http.Request) {
 
 	result, err := database.DB.Exec(`
 		UPDATE users
-		SET full_name = ?, bio = ?, email = ?, category_id = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?`, req.Name, req.Bio, req.Email, categoryID, userID)
+		SET full_name = $1, bio = $2, email = $3, category_id = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $5`, req.Name, req.Bio, req.Email, categoryID, userID)
 	if err != nil {
 		http.Error(w, "Error saving profile", http.StatusInternalServerError)
 		return
@@ -534,13 +531,13 @@ func UpdateDashboardProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sync Social Links
-	_, _ = database.DB.Exec(`DELETE FROM social_links WHERE user_id = ?`, userID)
+	_, _ = database.DB.Exec(`DELETE FROM social_links WHERE user_id = $1`, userID)
 	for idx, link := range req.SocialLinks {
 		link = strings.TrimSpace(link)
 		if link == "" {
 			continue
 		}
-		platform := "web"
+		platform := "website"
 		lowerLink := strings.ToLower(link)
 		if strings.Contains(lowerLink, "twitter.com") || strings.Contains(lowerLink, "x.com") {
 			platform = "twitter"
@@ -552,7 +549,7 @@ func UpdateDashboardProfile(w http.ResponseWriter, r *http.Request) {
 
 		_, err = database.DB.Exec(`
 			INSERT INTO social_links (user_id, platform, url, sort_order)
-			VALUES (?, ?, ?, ?)`, userID, platform, link, idx)
+			VALUES ($1, $2, $3, $4)`, userID, platform, link, idx)
 		if err != nil {
 			log.Printf("Error inserting social link: %v", err)
 		}
@@ -588,8 +585,8 @@ func UpdateDashboardAvatar(w http.ResponseWriter, r *http.Request) {
 
 	result, err := database.DB.Exec(`
 		UPDATE users
-		SET avatar_url = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?`, avatarURL, userID)
+		SET avatar_url = $1, updated_at = CURRENT_TIMESTAMP
+		WHERE id = $2`, avatarURL, userID)
 	if err != nil {
 		http.Error(w, "Error saving avatar", http.StatusInternalServerError)
 		return
@@ -628,12 +625,12 @@ func UpdateDashboardNotifications(w http.ResponseWriter, r *http.Request) {
 	_, err = database.DB.Exec(`
 		INSERT INTO notification_settings
 			(user_id, new_supporter, new_message, weekly_report, marketing_emails)
-		VALUES (?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			new_supporter = VALUES(new_supporter),
-			new_message = VALUES(new_message),
-			weekly_report = VALUES(weekly_report),
-			marketing_emails = VALUES(marketing_emails),
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (user_id) DO UPDATE SET
+			new_supporter = EXCLUDED.new_supporter,
+			new_message = EXCLUDED.new_message,
+			weekly_report = EXCLUDED.weekly_report,
+			marketing_emails = EXCLUDED.marketing_emails,
 			updated_at = CURRENT_TIMESTAMP`, userID, req.NewSupporter, req.NewMessage, req.WeeklyReport, req.MarketingEmails)
 	if err != nil {
 		http.Error(w, "Error saving notifications", http.StatusInternalServerError)
@@ -678,7 +675,7 @@ func UpdateDashboardGoal(w http.ResponseWriter, r *http.Request) {
 	err = tx.QueryRow(`
 		SELECT id
 		FROM goals
-		WHERE user_id = ? AND is_active = 1
+		WHERE user_id = $1 AND is_active = TRUE
 		ORDER BY id DESC
 		LIMIT 1`, userID).Scan(&goalID)
 	if err != nil {
@@ -688,15 +685,15 @@ func UpdateDashboardGoal(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := tx.Exec(`
 			INSERT INTO goals (user_id, label, target_amount, current_amount, is_active)
-			VALUES (?, ?, ?, 0, 1)`, userID, req.Title, req.Amount); err != nil {
+			VALUES ($1, $2, $3, 0, TRUE)`, userID, req.Title, req.Amount); err != nil {
 			http.Error(w, "Error saving goal", http.StatusInternalServerError)
 			return
 		}
 	} else {
 		if _, err := tx.Exec(`
 			UPDATE goals
-			SET label = ?, target_amount = ?, is_active = 1
-			WHERE id = ? AND user_id = ?`, req.Title, req.Amount, goalID, userID); err != nil {
+			SET label = $1, target_amount = $2, is_active = TRUE
+			WHERE id = $3 AND user_id = $4`, req.Title, req.Amount, goalID, userID); err != nil {
 			http.Error(w, "Error saving goal", http.StatusInternalServerError)
 			return
 		}
@@ -723,9 +720,9 @@ func GetDashboardStripeStatus(w http.ResponseWriter, r *http.Request) {
 	var cardLast4 sql.NullString
 
 	if err := database.DB.QueryRow(`
-		SELECT COALESCE(is_connected, 0), COALESCE(card_last4, '')
+		SELECT COALESCE(is_connected, FALSE), COALESCE(card_last4, '')
 		FROM payout_accounts
-		WHERE user_id = ? AND provider = 'stripe'`, userID).Scan(&connected, &cardLast4); err != nil {
+		WHERE user_id = $1 AND provider = 'stripe'`, userID).Scan(&connected, &cardLast4); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeJSON(w, http.StatusOK, response)
 			return

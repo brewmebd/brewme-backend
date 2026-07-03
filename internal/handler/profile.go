@@ -27,7 +27,7 @@ func GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var info model.CreatorProfile
-	query := `SELECT id, avatar_url, full_name, bio, username, email FROM users WHERE id = ?`
+	query := `SELECT id, avatar_url, full_name, bio, username, email FROM users WHERE id = $1`
 	err = database.DB.QueryRow(query, user_id).Scan(&info.CreatorID, &info.CreatorImage, &info.CreatorName, &info.CreatorBio, &info.CreatorUrl, &info.CreatorEmail)
 	if err != nil {
 		http.Error(w, "Invalid database query", http.StatusInternalServerError)
@@ -43,7 +43,7 @@ func GetUserProfile(w http.ResponseWriter, r *http.Request) {
 
 func isUsernameTaken(username string) bool {
 	var exists bool
-	query := "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)"
+	query := "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"
 	_ = database.DB.QueryRow(query, username).Scan(&exists)
 	return exists
 }

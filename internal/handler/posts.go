@@ -141,9 +141,9 @@ func GetDashboardPosts(w http.ResponseWriter, r *http.Request) {
 	rows, err := database.DB.Query(`
 		SELECT `+postColumns+`
 		FROM posts
-		WHERE user_id = ?
+		WHERE user_id = $1
 		ORDER BY COALESCE(published_at, created_at) DESC
-		LIMIT ?`,
+		LIMIT $2`,
 		userID, limit,
 	)
 	if err != nil {
@@ -184,20 +184,15 @@ func CreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// published_at is set only when publishing; drafts have a NULL publish date.
-	res, err := database.DB.Exec(`
+	var newID int64
+	err := database.DB.QueryRow(`
 		INSERT INTO posts (user_id, title, body, preview, image_url, visibility, status, published_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $8 = 'published' THEN CURRENT_TIMESTAMP ELSE NULL END) RETURNING id`,
 		userID, title, content, preview, image, visibility, status, status,
-	)
+	).Scan(&newID)
 	if err != nil {
 		http.Error(w, "Error creating post", http.StatusInternalServerError)
 		log.Println("Database error (CreatePost):", err)
-		return
-	}
-
-	newID, err := res.LastInsertId()
-	if err != nil {
-		http.Error(w, "Error confirming post", http.StatusInternalServerError)
 		return
 	}
 
@@ -257,10 +252,10 @@ func UpdatePost(w http.ResponseWriter, r *http.Request) {
 	// Publishing a previously-drafted post stamps published_at once.
 	_, err = database.DB.Exec(`
 		UPDATE posts
-		SET title = ?, body = ?, preview = ?, image_url = ?, visibility = ?, status = ?,
-		    published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, CURRENT_TIMESTAMP) ELSE published_at END,
+		SET title = $1, body = $2, preview = $3, image_url = $4, visibility = $5, status = $6,
+		    published_at = CASE WHEN $7 = 'published' THEN COALESCE(published_at, CURRENT_TIMESTAMP) ELSE published_at END,
 		    updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND user_id = ?`,
+		WHERE id = $8 AND user_id = $9`,
 		title, content, preview, finalImage, visibility, status, status, postID, userID,
 	)
 	if err != nil {
@@ -301,7 +296,7 @@ func DeletePost(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch the image path first (also serves as the ownership check).
 	var image sql.NullString
-	err = database.DB.QueryRow(`SELECT image_url FROM posts WHERE id = ? AND user_id = ?`, postID, userID).Scan(&image)
+	err = database.DB.QueryRow(`SELECT image_url FROM posts WHERE id = $1 AND user_id = $2`, postID, userID).Scan(&image)
 	if err == sql.ErrNoRows {
 		http.Error(w, "Post not found", http.StatusNotFound)
 		return
@@ -311,7 +306,7 @@ func DeletePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := database.DB.Exec(`DELETE FROM posts WHERE id = ? AND user_id = ?`, postID, userID); err != nil {
+	if _, err := database.DB.Exec(`DELETE FROM posts WHERE id = $1 AND user_id = $2`, postID, userID); err != nil {
 		http.Error(w, "Error deleting post", http.StatusInternalServerError)
 		log.Println("Database error (DeletePost):", err)
 		return
@@ -344,7 +339,7 @@ func authUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 
 // loadPost reads a single owned post by id.
 func loadPost(id, userID int64) (model.DashboardPostItem, error) {
-	row := database.DB.QueryRow(`SELECT `+postColumns+` FROM posts WHERE id = ? AND user_id = ?`, id, userID)
+	row := database.DB.QueryRow(`SELECT `+postColumns+` FROM posts WHERE id = $1 AND user_id = $2`, id, userID)
 	return scanPost(row)
 }
 

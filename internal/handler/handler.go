@@ -20,7 +20,7 @@ import (
 	"brewme/internal/model"
 	"brewme/internal/utils"
 
-	"github.com/go-sql-driver/mysql"
+	"github.com/lib/pq"
 )
 
 const (
@@ -85,7 +85,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 	var categoryID sql.NullInt64
 	if categorySlug != "" {
 		var id int64
-		err := database.DB.QueryRow(`SELECT id FROM categories WHERE slug = ?`, categorySlug).Scan(&id)
+		err := database.DB.QueryRow(`SELECT id FROM categories WHERE slug = $1`, categorySlug).Scan(&id)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			writeJSON(w, http.StatusBadRequest, map[string]any{
@@ -102,7 +102,7 @@ func Register(w http.ResponseWriter, r *http.Request) {
 
 	// Email uniqueness pre-check. ErrNoRows means the email is available.
 	var exists int
-	err := database.DB.QueryRow(`SELECT 1 FROM users WHERE email = ?`, email).Scan(&exists)
+	err := database.DB.QueryRow(`SELECT 1 FROM users WHERE email = $1`, email).Scan(&exists)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -144,16 +144,17 @@ func Register(w http.ResponseWriter, r *http.Request) {
 
 	// Insert the user (avatar_url set in the same insert).
 	const q = `INSERT INTO users (full_name, username, email, password_hash, bio, category_id, avatar_url)
-	           VALUES (?, ?, ?, ?, ?, ?, ?)`
-	res, err := database.DB.Exec(q, fullName, username, email, passwordHash,
-		sql.NullString{String: bio, Valid: bio != ""}, categoryID, avatarURL)
+	           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`
+	var id int64
+	err = database.DB.QueryRow(q, fullName, username, email, passwordHash,
+		sql.NullString{String: bio, Valid: bio != ""}, categoryID, avatarURL).Scan(&id)
 	if err != nil {
 		// Roll back the saved file if the row could not be created.
 		if savedAvatarPath != "" {
 			_ = os.Remove(savedAvatarPath)
 		}
-		var myErr *mysql.MySQLError
-		if errors.As(err, &myErr) && myErr.Number == 1062 {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23505" { // unique violation
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"status": false,
 				"error":  "email or username already exists",
@@ -163,7 +164,6 @@ func Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	id, _ := res.LastInsertId()
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"status":  true,
@@ -253,7 +253,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 
 	var password_hash string
 	var user_id int64
-	query := `SELECT id, password_hash FROM users WHERE email = ?`
+	query := `SELECT id, password_hash FROM users WHERE email = $1`
 	err = database.DB.QueryRow(query, email).Scan(&user_id, &password_hash)
 	if err != nil {
 		http.Error(w, "Invalid database query", http.StatusInternalServerError)

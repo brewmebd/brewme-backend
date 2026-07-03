@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"brewme/internal/database"
+	"brewme/internal/utils"
 
 	"github.com/go-chi/chi"
 	stripe "github.com/stripe/stripe-go/v81"
@@ -55,6 +56,16 @@ func CreateMembershipCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Prevent creators from supporting themselves
+	if token, err := utils.GetTokenFromHeader(r); err == nil {
+		if loggedInUserID, err := utils.GetUserIDFromToken(token); err == nil {
+			if loggedInUserID == creatorID {
+				http.Error(w, "You cannot buy your own membership.", http.StatusConflict)
+				return
+			}
+		}
+	}
+
 	accountID, connected, err := loadStripeAccountForUser(creatorID)
 	if err != nil {
 		http.Error(w, "Error loading creator payout setup", http.StatusInternalServerError)
@@ -71,7 +82,7 @@ func CreateMembershipCheckout(w http.ResponseWriter, r *http.Request) {
 	err = database.DB.QueryRow(`
 		SELECT name, price
 		FROM membership_tiers
-		WHERE id = ? AND user_id = ? AND is_active = 1`, req.TierID, creatorID).Scan(&tierName, &tierPrice)
+		WHERE id = $1 AND user_id = $2 AND is_active = TRUE`, req.TierID, creatorID).Scan(&tierName, &tierPrice)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Membership tier not found", http.StatusNotFound)

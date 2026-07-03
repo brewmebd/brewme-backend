@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"brewme/internal/database"
+	"brewme/internal/utils"
 
 	"github.com/go-chi/chi"
 	stripe "github.com/stripe/stripe-go/v81"
@@ -54,7 +55,7 @@ func getFrontendBaseURL(r *http.Request) string {
 }
 
 func loadCreatorByUsername(username string) (id int64, fullName string, err error) {
-	err = database.DB.QueryRow(`SELECT id, full_name FROM users WHERE username = ?`, username).Scan(&id, &fullName)
+	err = database.DB.QueryRow(`SELECT id, full_name FROM users WHERE username = $1`, username).Scan(&id, &fullName)
 	return
 }
 
@@ -66,19 +67,20 @@ func createPendingDonation(userID int64, supporterName string, message string, i
 	name := sql.NullString{String: strings.TrimSpace(supporterName), Valid: strings.TrimSpace(supporterName) != ""}
 	msg := sql.NullString{String: strings.TrimSpace(message), Valid: strings.TrimSpace(message) != ""}
 
-	res, err := database.DB.Exec(`
+	var id int64
+	err := database.DB.QueryRow(`
 		INSERT INTO donations (user_id, display_name, is_anonymous, cups, amount, currency, message, status)
-		VALUES (?, ?, ?, ?, ?, 'USD', ?, 'pending')`,
+		VALUES ($1, $2, $3, $4, $5, 'USD', $6, 'pending') RETURNING id`,
 		userID, name, isAnonymous, cups, float64(amountCents)/100, msg,
-	)
+	).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	return id, nil
 }
 
 func deletePendingDonation(donationID int64) {
-	_, _ = database.DB.Exec(`DELETE FROM donations WHERE id = ? AND status = 'pending'`, donationID)
+	_, _ = database.DB.Exec(`DELETE FROM donations WHERE id = $1 AND status = 'pending'`, donationID)
 }
 
 // CreateDonationCheckout starts the supporter checkout flow for a creator.
@@ -120,6 +122,16 @@ func CreateDonationCheckout(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Error loading creator", http.StatusInternalServerError)
 		return
+	}
+
+	// Prevent creators from supporting themselves
+	if token, err := utils.GetTokenFromHeader(r); err == nil {
+		if loggedInUserID, err := utils.GetUserIDFromToken(token); err == nil {
+			if loggedInUserID == creatorID {
+				http.Error(w, "You cannot support your own page.", http.StatusConflict)
+				return
+			}
+		}
 	}
 
 	accountID, connected, err := loadStripeAccountForUser(creatorID)
@@ -191,8 +203,8 @@ func CreateDonationCheckout(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = database.DB.Exec(`
 		UPDATE donations
-		SET stripe_charge_id = ?
-		WHERE id = ? AND status = 'pending'`, session.ID, donationID)
+		SET stripe_charge_id = $1
+		WHERE id = $2 AND status = 'pending'`, session.ID, donationID)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":      true,
@@ -221,7 +233,7 @@ func markDonationSucceeded(donationID int64, paymentIntentID string, customerEma
 	if err := tx.QueryRow(`
 		SELECT user_id, amount, cups, status, display_name, is_anonymous 
 		FROM donations 
-		WHERE id = ? FOR UPDATE`, donationID).Scan(&userID, &amount, &cups, &currentStatus, &formDisplayName, &isAnonymous); err != nil {
+		WHERE id = $1 FOR UPDATE`, donationID).Scan(&userID, &amount, &cups, &currentStatus, &formDisplayName, &isAnonymous); err != nil {
 		return err
 	}
 	if currentStatus == "succeeded" {
@@ -234,7 +246,7 @@ func markDonationSucceeded(donationID int64, paymentIntentID string, customerEma
 		err = tx.QueryRow(`
 			SELECT id 
 			FROM supporters 
-			WHERE user_id = ? AND email = ?`, userID, customerEmail).Scan(&existingSupporterID)
+			WHERE user_id = $1 AND email = $2`, userID, customerEmail).Scan(&existingSupporterID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// Create new supporter
@@ -245,15 +257,12 @@ func markDonationSucceeded(donationID int64, paymentIntentID string, customerEma
 				if displayName == "" {
 					displayName = "Anonymous"
 				}
-				res, err := tx.Exec(`
+				var lastID int64
+				err := tx.QueryRow(`
 					INSERT INTO supporters (user_id, display_name, email, is_anonymous)
-					VALUES (?, ?, ?, ?)`,
+					VALUES ($1, $2, $3, $4) RETURNING id`,
 					userID, displayName, customerEmail, isAnonymous,
-				)
-				if err != nil {
-					return err
-				}
-				lastID, err := res.LastInsertId()
+				).Scan(&lastID)
 				if err != nil {
 					return err
 				}
@@ -266,8 +275,8 @@ func markDonationSucceeded(donationID int64, paymentIntentID string, customerEma
 			if formDisplayName.Valid && strings.TrimSpace(formDisplayName.String) != "" {
 				_, _ = tx.Exec(`
 					UPDATE supporters
-					SET display_name = ?
-					WHERE id = ?`, strings.TrimSpace(formDisplayName.String), existingSupporterID)
+					SET display_name = $1
+					WHERE id = $2`, strings.TrimSpace(formDisplayName.String), existingSupporterID)
 			}
 			supporterID = sql.NullInt64{Int64: existingSupporterID, Valid: true}
 		}
@@ -276,16 +285,16 @@ func markDonationSucceeded(donationID int64, paymentIntentID string, customerEma
 	if _, err := tx.Exec(`
 		UPDATE donations
 		SET status = 'succeeded',
-		    stripe_charge_id = COALESCE(NULLIF(?, ''), stripe_charge_id),
-		    supporter_id = ?
-		WHERE id = ?`, paymentIntentID, supporterID, donationID); err != nil {
+		    stripe_charge_id = COALESCE(NULLIF($1, ''), stripe_charge_id),
+		    supporter_id = $2
+		WHERE id = $3`, paymentIntentID, supporterID, donationID); err != nil {
 		return err
 	}
 
 	if _, err := tx.Exec(`
 		UPDATE goals
-		SET current_amount = current_amount + ?
-		WHERE user_id = ? AND is_active = 1`, amount, userID); err != nil {
+		SET current_amount = current_amount + $1
+		WHERE user_id = $2 AND is_active = TRUE`, amount, userID); err != nil {
 		return err
 	}
 
@@ -309,7 +318,7 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 
 	// 1. Idempotency Check: check if subscription already exists
 	var existingID int64
-	err = tx.QueryRow(`SELECT id FROM memberships WHERE stripe_subscription_id = ?`, subscriptionID).Scan(&existingID)
+	err = tx.QueryRow(`SELECT id FROM memberships WHERE stripe_subscription_id = $1`, subscriptionID).Scan(&existingID)
 	if err == nil {
 		return tx.Commit() // Already processed
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -318,7 +327,7 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 
 	// 2. Fetch or Create Supporter
 	var supporterID int64
-	err = tx.QueryRow(`SELECT id FROM supporters WHERE user_id = ? AND email = ?`, creatorID, customerEmail).Scan(&supporterID)
+	err = tx.QueryRow(`SELECT id FROM supporters WHERE user_id = $1 AND email = $2`, creatorID, customerEmail).Scan(&supporterID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			displayName := strings.TrimSpace(supporterName)
@@ -328,15 +337,11 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 			if displayName == "" {
 				displayName = "Anonymous"
 			}
-			res, err := tx.Exec(`
+			err := tx.QueryRow(`
 				INSERT INTO supporters (user_id, display_name, email, is_anonymous)
-				VALUES (?, ?, ?, 0)`,
+				VALUES ($1, $2, $3, FALSE) RETURNING id`,
 				creatorID, displayName, customerEmail,
-			)
-			if err != nil {
-				return err
-			}
-			supporterID, err = res.LastInsertId()
+			).Scan(&supporterID)
 			if err != nil {
 				return err
 			}
@@ -347,13 +352,13 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 		// Update display name if a new one is provided in form
 		displayName := strings.TrimSpace(supporterName)
 		if displayName != "" {
-			_, _ = tx.Exec(`UPDATE supporters SET display_name = ? WHERE id = ?`, displayName, supporterID)
+			_, _ = tx.Exec(`UPDATE supporters SET display_name = $1 WHERE id = $2`, displayName, supporterID)
 		}
 	}
 
 	// 3. Fetch Tier Price
 	var tierPrice float64
-	err = tx.QueryRow(`SELECT price FROM membership_tiers WHERE id = ?`, tierID).Scan(&tierPrice)
+	err = tx.QueryRow(`SELECT price FROM membership_tiers WHERE id = $1`, tierID).Scan(&tierPrice)
 	if err != nil {
 		return err
 	}
@@ -368,7 +373,7 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 	}
 	_, err = tx.Exec(`
 		INSERT INTO memberships (user_id, tier_id, supporter_id, display_name, amount, status, stripe_subscription_id, started_at)
-		VALUES (?, ?, ?, ?, ?, 'active', ?, CURRENT_TIMESTAMP)`,
+		VALUES ($1, $2, $3, $4, $5, 'active', $6, CURRENT_TIMESTAMP)`,
 		creatorID, tierID, supporterID, displayName, tierPrice, subscriptionID,
 	)
 	if err != nil {
@@ -378,8 +383,8 @@ func markMembershipSucceeded(creatorID int64, tierID int64, subscriptionID strin
 	// 5. Update Goals
 	if _, err := tx.Exec(`
 		UPDATE goals
-		SET current_amount = current_amount + ?
-		WHERE user_id = ? AND is_active = 1`, tierPrice, creatorID); err != nil {
+		SET current_amount = current_amount + $1
+		WHERE user_id = $2 AND is_active = TRUE`, tierPrice, creatorID); err != nil {
 		return err
 	}
 
@@ -401,7 +406,7 @@ func handleSubscriptionRenewal(subscriptionID string, amountPaid float64) error 
 	err = tx.QueryRow(`
 		SELECT user_id 
 		FROM memberships 
-		WHERE stripe_subscription_id = ?`, subscriptionID).Scan(&creatorID)
+		WHERE stripe_subscription_id = $1`, subscriptionID).Scan(&creatorID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil // Subscription doesn't exist locally yet
@@ -412,8 +417,8 @@ func handleSubscriptionRenewal(subscriptionID string, amountPaid float64) error 
 	// Update period and set to active
 	_, err = tx.Exec(`
 		UPDATE memberships 
-		SET current_period_end = DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 1 MONTH), status = 'active'
-		WHERE stripe_subscription_id = ?`, subscriptionID)
+		SET current_period_end = CURRENT_TIMESTAMP + INTERVAL '1 month', status = 'active'
+		WHERE stripe_subscription_id = $1`, subscriptionID)
 	if err != nil {
 		return err
 	}
@@ -421,8 +426,8 @@ func handleSubscriptionRenewal(subscriptionID string, amountPaid float64) error 
 	// Update active goal
 	_, err = tx.Exec(`
 		UPDATE goals 
-		SET current_amount = current_amount + ? 
-		WHERE user_id = ? AND is_active = 1`, amountPaid, creatorID)
+		SET current_amount = current_amount + $1 
+		WHERE user_id = $2 AND is_active = TRUE`, amountPaid, creatorID)
 	if err != nil {
 		return err
 	}
@@ -540,7 +545,7 @@ func StripeWebhook(w http.ResponseWriter, r *http.Request) {
 		_, err := database.DB.Exec(`
 			UPDATE memberships
 			SET status = 'canceled', canceled_at = CURRENT_TIMESTAMP
-			WHERE stripe_subscription_id = ?`, subscription.ID)
+			WHERE stripe_subscription_id = $1`, subscription.ID)
 		if err != nil {
 			log.Printf("Failed to cancel subscription in webhook: %v", err)
 			http.Error(w, "Failed to update subscription status", http.StatusInternalServerError)

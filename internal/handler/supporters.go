@@ -76,8 +76,8 @@ func SubmitReply(w http.ResponseWriter, r *http.Request) {
 	// so interpolating it here is safe from SQL injection.
 	result, err := database.DB.Exec(fmt.Sprintf(`
 		UPDATE %s
-		SET reply_message = ?, replied_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND user_id = ?`, table),
+		SET reply_message = $1, replied_at = CURRENT_TIMESTAMP
+		WHERE id = $2 AND user_id = $3`, table),
 		reqBody.Message, supporterID, userID,
 	)
 
@@ -152,7 +152,7 @@ func GetSupportersList(w http.ResponseWriter, r *http.Request) {
 			(reply_message IS NOT NULL) as support_replied,
 			reply_message as creator_reply
 		FROM donations
-		WHERE user_id = ? AND status = 'succeeded'
+		WHERE user_id = $1 AND status = 'succeeded'
 		
 		UNION ALL
 		
@@ -167,10 +167,10 @@ func GetSupportersList(w http.ResponseWriter, r *http.Request) {
 			(reply_message IS NOT NULL) as support_replied,
 			reply_message as creator_reply
 		FROM memberships
-		WHERE user_id = ? AND status = 'active'
+		WHERE user_id = $2 AND status = 'active'
 		
 		ORDER BY created_at DESC
-		LIMIT ?
+		LIMIT $3
 	`
 
 	// Notice we pass userID twice (once for donations, once for memberships)

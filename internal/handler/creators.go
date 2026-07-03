@@ -46,7 +46,7 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 		FROM users u
 		LEFT JOIN categories c ON u.category_id = c.id
 		LEFT JOIN donations d ON u.id = d.user_id AND d.status = 'succeeded'
-		WHERE u.username = ?
+		WHERE u.username = $1
 		GROUP BY u.id, c.name`
 
 	err := database.DB.QueryRow(query, username).Scan(
@@ -74,7 +74,7 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 	profile.CreatorCategory = categoryName.String
 	profile.CreatorBio = bio.String
 
-	links_query := `SELECT platform, url FROM social_links WHERE user_id = ? ORDER BY sort_order ASC`
+	links_query := `SELECT platform, url FROM social_links WHERE user_id = $1 ORDER BY sort_order ASC`
 
 	rows, err := database.DB.Query(links_query, userID)
 	if err != nil {
@@ -103,7 +103,7 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Query membership tiers for the creator
-	tiersQuery := `SELECT id, name, price FROM membership_tiers WHERE user_id = ? AND is_active = 1 ORDER BY sort_order ASC, id ASC`
+	tiersQuery := `SELECT id, name, price FROM membership_tiers WHERE user_id = $1 AND is_active = TRUE ORDER BY sort_order ASC, id ASC`
 	rowsTiers, err := database.DB.Query(tiersQuery, userID)
 	if err != nil {
 		log.Printf("Error querying membership tiers: %v", err)
@@ -121,7 +121,7 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Query perks for this tier
-		perksQuery := `SELECT perk_text FROM tier_perks WHERE tier_id = ? ORDER BY sort_order ASC, id ASC`
+		perksQuery := `SELECT perk_text FROM tier_perks WHERE tier_id = $1 ORDER BY sort_order ASC, id ASC`
 		rowsPerks, err := database.DB.Query(perksQuery, tier.ID)
 		if err != nil {
 			log.Printf("Error querying perks: %v", err)
@@ -184,9 +184,9 @@ func GetSupportersFeed(w http.ResponseWriter, r *http.Request) {
 				sf.created_at 
 			  FROM supporter_feed sf
 			  JOIN users u ON sf.user_id = u.id
-			  WHERE u.username = ? 
+			  WHERE u.username = $1 
 			  ORDER BY sf.created_at DESC
-			  LIMIT ?;`
+			  LIMIT $2;`
 
 	// PASSED THE limit VARIABLE HERE
 	rows, err := database.DB.Query(query, username, limit)
@@ -261,7 +261,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 
 	// 3. Resolve Creator User ID
 	var creatorUserID int64
-	err := database.DB.QueryRow(`SELECT id FROM users WHERE username = ?`, username).Scan(&creatorUserID)
+	err := database.DB.QueryRow(`SELECT id FROM users WHERE username = $1`, username).Scan(&creatorUserID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "Creator not found", http.StatusNotFound)
@@ -281,7 +281,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		if viewerID, err := utils.GetUserIDFromToken(token); err == nil {
 			viewerUserID = viewerID
-			_ = database.DB.QueryRow(`SELECT email FROM users WHERE id = ?`, viewerUserID).Scan(&viewerEmail)
+			_ = database.DB.QueryRow(`SELECT email FROM users WHERE id = $1`, viewerUserID).Scan(&viewerEmail)
 		}
 	}
 
@@ -294,7 +294,7 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 				SELECT COUNT(*)
 				FROM memberships m
 				JOIN supporters s ON m.supporter_id = s.id
-				WHERE m.user_id = ? AND s.email = ? AND m.status = 'active'`,
+				WHERE m.user_id = $1 AND s.email = $2 AND m.status = 'active'`,
 				creatorUserID, viewerEmail,
 			).Scan(&count)
 			if err == nil && count > 0 {
@@ -314,11 +314,11 @@ func GetCreatorPublicPosts(w http.ResponseWriter, r *http.Request) {
 			p.published_at,
 			p.visibility
 		FROM posts p
-		WHERE p.user_id = ? 
+		WHERE p.user_id = $1 
 		  AND p.status = 'published' 
 		  AND p.visibility IN ('public', 'members')
 		ORDER BY p.published_at DESC
-		LIMIT ?
+		LIMIT $2
 	`
 
 	rows, err := database.DB.Query(query, creatorUserID, limit)

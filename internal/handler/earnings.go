@@ -24,7 +24,7 @@ func GetDashboardEarnings(w http.ResponseWriter, r *http.Request) {
 	// 1. Lifetime gross + completed payouts from the creator_earnings view.
 	var totalEarned, totalPaidOut float64
 	err := database.DB.QueryRow(`
-		SELECT total_earned, total_paid_out FROM creator_earnings WHERE user_id = ?`,
+		SELECT total_earned, total_paid_out FROM creator_earnings WHERE user_id = $1`,
 		userID,
 	).Scan(&totalEarned, &totalPaidOut)
 	if err != nil && err != sql.ErrNoRows {
@@ -36,7 +36,7 @@ func GetDashboardEarnings(w http.ResponseWriter, r *http.Request) {
 	// 2. Pending payouts (money reserved but not yet paid).
 	var pendingPayouts float64
 	if err := database.DB.QueryRow(
-		`SELECT COALESCE(SUM(amount), 0) FROM payouts WHERE user_id = ? AND status = 'pending'`, userID,
+		`SELECT COALESCE(SUM(amount), 0) FROM payouts WHERE user_id = $1 AND status = 'pending'`, userID,
 	).Scan(&pendingPayouts); err != nil {
 		http.Error(w, "Error fetching pending payouts", http.StatusInternalServerError)
 		log.Println("Database error (pending payouts):", err)
@@ -82,7 +82,7 @@ func GetDashboardEarnings(w http.ResponseWriter, r *http.Request) {
 	err = database.DB.QueryRow(`
 		SELECT stripe_account_id 
 		FROM stripe_accounts 
-		WHERE user_id = ?`, userID).Scan(&stripeAccountID)
+		WHERE user_id = $1`, userID).Scan(&stripeAccountID)
 	if err == nil && stripeAccountID != "" {
 		stripeConnected = true
 	}
@@ -132,14 +132,14 @@ func RequestPayout(w http.ResponseWriter, r *http.Request) {
 	// Recompute available balance server-side (never trust the client).
 	var totalEarned, totalPaidOut, pending float64
 	if err := database.DB.QueryRow(
-		`SELECT total_earned, total_paid_out FROM creator_earnings WHERE user_id = ?`, userID,
+		`SELECT total_earned, total_paid_out FROM creator_earnings WHERE user_id = $1`, userID,
 	).Scan(&totalEarned, &totalPaidOut); err != nil && err != sql.ErrNoRows {
 		http.Error(w, "Error checking balance", http.StatusInternalServerError)
 		log.Println("Database error (payout balance):", err)
 		return
 	}
 	if err := database.DB.QueryRow(
-		`SELECT COALESCE(SUM(amount), 0) FROM payouts WHERE user_id = ? AND status = 'pending'`, userID,
+		`SELECT COALESCE(SUM(amount), 0) FROM payouts WHERE user_id = $1 AND status = 'pending'`, userID,
 	).Scan(&pending); err != nil {
 		http.Error(w, "Error checking balance", http.StatusInternalServerError)
 		return
@@ -153,7 +153,7 @@ func RequestPayout(w http.ResponseWriter, r *http.Request) {
 	// Next global reference number (PO-###).
 	var nextNum int64
 	if err := database.DB.QueryRow(
-		`SELECT COALESCE(MAX(CAST(SUBSTRING(reference, 4) AS UNSIGNED)), 0) + 1 FROM payouts WHERE reference LIKE 'PO-%'`,
+		`SELECT COALESCE(MAX(CAST(SUBSTRING(reference, 4) AS INTEGER)), 0) + 1 FROM payouts WHERE reference LIKE 'PO-%'`,
 	).Scan(&nextNum); err != nil {
 		http.Error(w, "Error generating reference", http.StatusInternalServerError)
 		log.Println("Database error (payout ref):", err)
@@ -163,7 +163,7 @@ func RequestPayout(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := database.DB.Exec(`
 		INSERT INTO payouts (user_id, reference, amount, method, status, payout_date)
-		VALUES (?, ?, ?, ?, 'pending', CURDATE())`,
+		VALUES ($1, $2, $3, $4, 'pending', CURRENT_DATE)`,
 		userID, reference, req.Amount, method,
 	); err != nil {
 		http.Error(w, "Error creating payout", http.StatusInternalServerError)
@@ -192,13 +192,13 @@ func monthlyEarnings(userID int64, monthsAgo int) float64 {
 	_ = database.DB.QueryRow(`
 		SELECT
 			COALESCE((SELECT SUM(amount) FROM donations
-				WHERE user_id = ? AND status = 'succeeded'
-				  AND created_at >= DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL ? MONTH), '%Y-%m-01')
-				  AND created_at <  DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL ? MONTH) + INTERVAL 1 MONTH, '%Y-%m-01')), 0) +
+				WHERE user_id = $1 AND status = 'succeeded'
+				  AND created_at >= DATE_FORMAT(DATE_SUB(CURRENT_DATE, INTERVAL $2 MONTH), '%Y-%m-01')
+				  AND created_at <  DATE_FORMAT(DATE_SUB(CURRENT_DATE, INTERVAL $3 MONTH) + INTERVAL 1 MONTH, '%Y-%m-01')), 0) +
 			COALESCE((SELECT SUM(amount) FROM memberships
-				WHERE user_id = ? AND status = 'active'
-				  AND started_at >= DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL ? MONTH), '%Y-%m-01')
-				  AND started_at <  DATE_FORMAT(DATE_SUB(CURRENT_DATE(), INTERVAL ? MONTH) + INTERVAL 1 MONTH, '%Y-%m-01')), 0)
+				WHERE user_id = $4 AND status = 'active'
+				  AND started_at >= DATE_FORMAT(DATE_SUB(CURRENT_DATE, INTERVAL $5 MONTH), '%Y-%m-01')
+				  AND started_at <  DATE_FORMAT(DATE_SUB(CURRENT_DATE, INTERVAL $6 MONTH) + INTERVAL 1 MONTH, '%Y-%m-01')), 0)
 	`, userID, monthsAgo, monthsAgo, userID, monthsAgo, monthsAgo).Scan(&total)
 	return total
 }
@@ -206,16 +206,16 @@ func monthlyEarnings(userID int64, monthsAgo int) float64 {
 // earningsChart returns monthly totals (donations + memberships) for the year.
 func earningsChart(userID int64) ([]model.ChartEntry, error) {
 	rows, err := database.DB.Query(`
-		SELECT DATE_FORMAT(date_col, '%b') AS month_name, SUM(amount) AS monthly_total
+		SELECT TO_CHAR(date_col, 'Mon') AS month_name, SUM(amount) AS monthly_total
 		FROM (
 			SELECT created_at AS date_col, amount FROM donations
-				WHERE user_id = ? AND status = 'succeeded' AND YEAR(created_at) = YEAR(CURRENT_DATE())
+				WHERE user_id = $1 AND status = 'succeeded' AND EXTRACT(YEAR FROM created_at) = EXTRACT(YEAR FROM CURRENT_DATE)
 			UNION ALL
 			SELECT started_at AS date_col, amount FROM memberships
-				WHERE user_id = ? AND status = 'active' AND YEAR(started_at) = YEAR(CURRENT_DATE())
+				WHERE user_id = $2 AND status = 'active' AND EXTRACT(YEAR FROM started_at) = EXTRACT(YEAR FROM CURRENT_DATE)
 		) AS combined
-		GROUP BY MONTH(date_col), month_name
-		ORDER BY MONTH(date_col) ASC`,
+		GROUP BY EXTRACT(MONTH FROM date_col), month_name
+		ORDER BY EXTRACT(MONTH FROM date_col) ASC`,
 		userID, userID,
 	)
 	if err != nil {
@@ -238,7 +238,7 @@ func earningsChart(userID int64) ([]model.ChartEntry, error) {
 func payoutHistory(userID int64) ([]model.PayoutItem, error) {
 	rows, err := database.DB.Query(`
 		SELECT reference, amount, payout_date, status
-		FROM payouts WHERE user_id = ?
+		FROM payouts WHERE user_id = $1
 		ORDER BY payout_date DESC, id DESC`,
 		userID,
 	)
@@ -314,7 +314,7 @@ func nowDateLabel() string {
 	// Uses the DB's CURDATE for the stored row; for the response label we use the
 	// same civil date via a lightweight query to avoid clock/timezone drift.
 	var d sql.NullTime
-	if err := database.DB.QueryRow(`SELECT CURDATE()`).Scan(&d); err == nil && d.Valid {
+	if err := database.DB.QueryRow(`SELECT CURRENT_DATE`).Scan(&d); err == nil && d.Valid {
 		return d.Time.Format("Jan 2, 2006")
 	}
 	return ""
