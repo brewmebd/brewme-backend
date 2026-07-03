@@ -74,6 +74,10 @@ func GetCreatorProfile(w http.ResponseWriter, r *http.Request) {
 	profile.CreatorCategory = categoryName.String
 	profile.CreatorBio = bio.String
 
+	// Fetch Stripe connection status
+	_, connected, _ := loadStripePayoutAccount(userID)
+	profile.StripeConnected = connected
+
 	links_query := `SELECT platform, url FROM social_links WHERE user_id = $1 ORDER BY sort_order ASC`
 
 	rows, err := database.DB.Query(links_query, userID)

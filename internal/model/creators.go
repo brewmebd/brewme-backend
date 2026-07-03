@@ -18,6 +18,7 @@ type GetCreatorProfile struct {
 	TotalCups       int64                   `json:"total_cups"`
 	TotalSupporters int64                   `json:"total_supporters"`
 	Tiers           []CreatorMembershipTier `json:"tiers"`
+	StripeConnected bool                    `json:"stripe_connected"`
 }
 
 type GetSupportersFeed struct {

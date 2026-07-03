@@ -41,6 +41,8 @@ func Router() http.Handler {
 			r.Post("/register", handler.Register)
 			r.Post("/login", handler.Login)
 			r.Get("/username-available", handler.CheckUsername)
+			r.Post("/forgot-password", handler.ForgotPassword)
+			r.Post("/reset-password", handler.ResetPassword)
 			r.Post("/logout", appmiddleware.SessionMiddleware(handler.UserLogout))
 		})
 
@@ -79,6 +81,8 @@ func Router() http.Handler {
 			r.Put("/settings/goal", appmiddleware.SessionMiddleware(handler.UpdateDashboardGoal))
 			r.Get("/settings/stripe/status", appmiddleware.SessionMiddleware(handler.GetStripeConnectStatus))
 			r.Post("/settings/stripe/connect", appmiddleware.SessionMiddleware(handler.CreateStripeConnectLink))
+			r.Post("/settings/email/request-change", appmiddleware.SessionMiddleware(handler.RequestEmailChange))
+			r.Post("/settings/email/verify-change", appmiddleware.SessionMiddleware(handler.VerifyEmailChange))
 			r.Post("/payouts", appmiddleware.SessionMiddleware(handler.RequestPayout))
 		})
 
